@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive/hive.dart';
+import 'dart:developer' as developer;
 
 class AuthService {
   final FirebaseAuth _auth = FirebaseAuth.instance;
@@ -111,7 +112,7 @@ class AuthService {
       
       await box.put('current_user', userMap);
     } catch (e) {
-      print('Error guardando usuario local: $e');
+      developer.log('Error guardando usuario local: $e', name: 'my_porki.auth');
     }
   }
 

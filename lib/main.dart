@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:developer' as developer;
 import 'package:firebase_core/firebase_core.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -9,49 +10,58 @@ import 'backend/services/sync_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  print('🚀 INICIANDO APP CON LIMPIEZA COMPLETA...');
-  
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
+  developer.log(
+    '🚀 INICIANDO APP CON LIMPIEZA COMPLETA...',
+    name: 'my_porki.main',
   );
+
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // 🔥 LIMPIEZA NUCLEAR - FORZAR
   await Hive.initFlutter();
-  
+
   // ELIMINAR TODAS LAS BOXES EXISTENTES
   try {
     await Hive.close(); // Cerrar todas las boxes primero
     await Hive.deleteBoxFromDisk('porki_users');
-    print('✅ porki_users eliminado');
+    developer.log('✅ porki_users eliminado', name: 'my_porki.main');
   } catch (e) {
-    print('⚠️ Error eliminando porki_users: $e');
+    developer.log('⚠️ Error eliminando porki_users: $e', name: 'my_porki.main');
   }
-  
+
   try {
     await Hive.deleteBoxFromDisk('porki_data');
-    print('✅ porki_data eliminado');
+    developer.log('✅ porki_data eliminado', name: 'my_porki.main');
   } catch (e) {
-    print('⚠️ Error eliminando porki_data: $e');
+    developer.log('⚠️ Error eliminando porki_data: $e', name: 'my_porki.main');
   }
 
   // ELIMINAR TODO EL DIRECTORIO HIVE
   try {
     await Hive.deleteFromDisk();
-    print('✅ Directorio Hive completo eliminado');
+    developer.log(
+      '✅ Directorio Hive completo eliminado',
+      name: 'my_porki.main',
+    );
   } catch (e) {
-    print('⚠️ Error eliminando directorio Hive: $e');
+    developer.log(
+      '⚠️ Error eliminando directorio Hive: $e',
+      name: 'my_porki.main',
+    );
   }
 
   // REINICIALIZAR COMPLETAMENTE
   await Hive.initFlutter();
-  
+
   // CREAR NUEVAS BOXES LIMPIAS
   await Hive.openBox('porki_data');
   await Hive.openBox('porki_users');
-  
-  print('🎉 HIVE COMPLETAMENTE LIMPIO - INICIANDO APP');
 
-  
+  developer.log(
+    '🎉 HIVE COMPLETAMENTE LIMPIO - INICIANDO APP',
+    name: 'my_porki.main',
+  );
+
   runApp(const MyPorkiApp());
 }
 
@@ -91,17 +101,30 @@ class _ConnectionHandlerState extends State<ConnectionHandler> {
   }
 
   Future<void> _checkConnection() async {
-    final result = await Connectivity().checkConnectivity();
+    final dynamic result = await Connectivity().checkConnectivity();
     setState(() {
-      _isConnected = result != ConnectivityResult.none;
+      if (result is List) {
+        _isConnected =
+            result.isNotEmpty &&
+            result.any((r) => r != ConnectivityResult.none);
+      } else {
+        _isConnected = result != ConnectivityResult.none;
+      }
     });
 
     if (_isConnected) {
       await _syncService.syncLocalData();
     }
 
-    Connectivity().onConnectivityChanged.listen((status) async {
-      final connected = status != ConnectivityResult.none;
+    Connectivity().onConnectivityChanged.listen((dynamic status) async {
+      final bool connected;
+      if (status is List) {
+        connected =
+            status.isNotEmpty &&
+            status.any((r) => r != ConnectivityResult.none);
+      } else {
+        connected = status != ConnectivityResult.none;
+      }
       setState(() => _isConnected = connected);
 
       if (connected) {

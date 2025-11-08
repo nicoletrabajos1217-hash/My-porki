@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive/hive.dart';
+import 'dart:developer' as developer;
 
 class SyncService {
   final FirebaseFirestore _firestore = FirebaseFirestore.instance;
@@ -22,9 +23,9 @@ class SyncService {
       
       await _syncFromFirebaseToLocal();
       
-      print('🔄 Sincronización completada');
+      developer.log('🔄 Sincronización completada', name: 'my_porki.sync');
     } catch (e) {
-      print('❌ Error en sincronización general: $e');
+      developer.log('❌ Error en sincronización general: $e', name: 'my_porki.sync');
     }
   }
 
@@ -43,10 +44,10 @@ class SyncService {
             .set(recordData, SetOptions(merge: true));
 
         await box.delete(key);
-        print('✅ $collection sincronizado: $docId');
+        developer.log('✅ $collection sincronizado: $docId', name: 'my_porki.sync');
       }
     } catch (e) {
-      print('❌ Error sincronizando $key: $e');
+      developer.log('❌ Error sincronizando $key: $e', name: 'my_porki.sync');
     }
   }
 
@@ -64,7 +65,7 @@ class SyncService {
         }
       }
     } catch (e) {
-      print('❌ Error sincronizando desde Firebase: $e');
+      developer.log('❌ Error sincronizando desde Firebase: $e', name: 'my_porki.sync');
     }
   }
 

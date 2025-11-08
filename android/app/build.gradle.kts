@@ -45,3 +45,9 @@ android {
 flutter {
     source = "../.."
 }
+
+// Mostrar detalles de usos de APIs obsoletas durante compilación Java
+// Añadimos la opción -Xlint:deprecation a las tareas JavaCompile
+tasks.withType<JavaCompile>().configureEach {
+    options.compilerArgs.add("-Xlint:deprecation")
+}

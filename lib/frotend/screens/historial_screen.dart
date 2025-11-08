@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
-import 'package:my_porki/frotend/screens/agregar_cerda_screen.dart';
 
 class HistorialScreen extends StatefulWidget {
   const HistorialScreen({super.key});
@@ -196,7 +195,7 @@ class _HistorialScreenState extends State<HistorialScreen> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 12),
-            ...eventos.take(10).map((evento) => _buildItemEvento(evento)).toList(),
+            ...eventos.take(10).map((evento) => _buildItemEvento(evento)),
           ],
         ),
       ),

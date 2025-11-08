@@ -43,6 +43,3 @@ flutter_native_splash:
   image: assets/images/LogoAlex.png
   android: true
   ios: true
-
-  assets:
-    - assets/images/LogoAlex.png
