@@ -114,7 +114,6 @@ class _CerdasScreenState extends State<CerdasScreen> {
                     final nombre = cerda['nombre'] ?? 'Sin nombre';
                     final id = cerda['identificacion'] ?? 'Sin ID';
                     final embarazada = cerda['embarazada'] ?? false;
-                    final lechonesEnVientre = cerda['lechones_en_vientre'] ?? 0;
                     final lechonesNacidos = cerda['lechones_nacidos'] ?? 0;
 
                     return Card(
@@ -139,7 +138,7 @@ class _CerdasScreenState extends State<CerdasScreen> {
                             if (embarazada) ...[
                               const SizedBox(height: 4),
                               Text(
-                                '🐷 Preña • $lechonesEnVientre lechones',
+                                '🐷 Preña',
                                 style: const TextStyle(
                                   color: Colors.blue,
                                   fontWeight: FontWeight.w500,
@@ -269,7 +268,6 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
   final TextEditingController _lechonesCtrl = TextEditingController(text: '0');
   String? _estadoReproductivo;
   bool _embarazada = false;
-  int _lechonesEnVientre = 0;
   int _lechonesNacidos = 0;
   bool _guardando = false;
 
@@ -288,7 +286,6 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
       _identificacionCtrl.text = cerda['identificacion'] ?? '';
       _estadoReproductivo = cerda['estado_reproductivo'];
       _embarazada = cerda['embarazada'] ?? false;
-      _lechonesEnVientre = cerda['lechones_en_vientre'] ?? 0;
       _lechonesNacidos = cerda['lechones_nacidos'] ?? 0;
       _lechonesCtrl.text = _lechonesNacidos.toString();
       _partos = List<Map<String, dynamic>>.from(cerda['partos'] ?? []);
@@ -320,11 +317,7 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
           cambios['lechones_nacidos'] =
               'De ${widget.cerdaExistente!['lechones_nacidos'] ?? 0} a $_lechonesNacidos';
         }
-        if (widget.cerdaExistente!['lechones_en_vientre'] !=
-            _lechonesEnVientre) {
-          cambios['lechones_en_vientre'] =
-              'De ${widget.cerdaExistente!['lechones_en_vientre'] ?? 0} a $_lechonesEnVientre';
-        }
+        // Removed tracking of 'lechones en vientre' (no longer required)
       }
 
       // Agregar al historial si hay cambios
@@ -342,7 +335,6 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
         'identificacion': _identificacionCtrl.text.trim(),
         'estado_reproductivo': _estadoReproductivo ?? 'No preñada',
         'embarazada': _embarazada,
-        'lechones_en_vientre': _lechonesEnVientre,
         'lechones_nacidos': _lechonesNacidos,
         'partos': _partos,
         'vacunas': _vacunas,
@@ -696,7 +688,7 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
                                       const SizedBox(height: 6),
                                       if (_embarazada)
                                         Text(
-                                          '• Preñada: SÍ (${_lechonesEnVientre} lechones esperados)',
+                                          '• Preñada: SÍ',
                                           style: const TextStyle(fontSize: 12),
                                         ),
                                       if (_lechonesNacidos > 0)

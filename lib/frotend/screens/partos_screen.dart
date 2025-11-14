@@ -41,8 +41,7 @@ class _PartosScreenState extends State<PartosScreen> {
     return cerdasConPrez.where((cerda) {
       switch (_filtroPartos) {
         case 'Proximos':
-          return cerda['fecha_real_parto'] == null && 
-                 _esPartoProximo(cerda);
+          return cerda['fecha_real_parto'] == null && _esPartoProximo(cerda);
         case 'Realizados':
           return cerda['fecha_real_parto'] != null;
         case 'Todos':
@@ -54,12 +53,12 @@ class _PartosScreenState extends State<PartosScreen> {
 
   bool _esPartoProximo(Map<String, dynamic> cerda) {
     if (cerda['fecha_estim_parto'] == null) return false;
-    
+
     try {
       final fechaEstimada = DateTime.parse(cerda['fecha_estim_parto']);
       final ahora = DateTime.now();
       final diferencia = fechaEstimada.difference(ahora).inDays;
-      
+
       return diferencia <= 7 && diferencia >= 0; // Próximos 7 días
     } catch (e) {
       return false;
@@ -67,14 +66,15 @@ class _PartosScreenState extends State<PartosScreen> {
   }
 
   bool _esPartoAtrasado(Map<String, dynamic> cerda) {
-    if (cerda['fecha_estim_parto'] == null || cerda['fecha_real_parto'] != null) {
+    if (cerda['fecha_estim_parto'] == null ||
+        cerda['fecha_real_parto'] != null) {
       return false;
     }
-    
+
     try {
       final fechaEstimada = DateTime.parse(cerda['fecha_estim_parto']);
       final ahora = DateTime.now();
-      
+
       return ahora.isAfter(fechaEstimada);
     } catch (e) {
       return false;
@@ -107,7 +107,7 @@ class _PartosScreenState extends State<PartosScreen> {
 
   String _formatearFecha(String? fechaString) {
     if (fechaString == null) return 'No definida';
-    
+
     try {
       final fecha = DateTime.parse(fechaString);
       return "${fecha.day}/${fecha.month}/${fecha.year}";
@@ -118,7 +118,7 @@ class _PartosScreenState extends State<PartosScreen> {
 
   int _diasRestantes(String? fechaEstimada) {
     if (fechaEstimada == null) return 0;
-    
+
     try {
       final fecha = DateTime.parse(fechaEstimada);
       final ahora = DateTime.now();
@@ -130,7 +130,7 @@ class _PartosScreenState extends State<PartosScreen> {
 
   void _marcarPartoRealizado(Map<String, dynamic> cerda, int hiveKey) async {
     final fechaRealParto = DateTime.now();
-    
+
     final cerdaActualizada = {
       ...cerda,
       'fecha_real_parto': fechaRealParto.toIso8601String(),
@@ -139,7 +139,7 @@ class _PartosScreenState extends State<PartosScreen> {
 
     await box.put(hiveKey, cerdaActualizada);
     setState(() {});
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text("Parto registrado para ${cerda['nombre']}")),
     );
@@ -156,13 +156,26 @@ class _PartosScreenState extends State<PartosScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               _buildInfoParto("Estado", _getTextoEstadoParto(cerda)),
-              _buildInfoParto("Fecha preñez", _formatearFecha(cerda['fecha_prez'])),
-              _buildInfoParto("Fecha estimada parto", _formatearFecha(cerda['fecha_estim_parto'])),
+              _buildInfoParto(
+                "Fecha preñez",
+                _formatearFecha(cerda['fecha_prez']),
+              ),
+              _buildInfoParto(
+                "Fecha estimada parto",
+                _formatearFecha(cerda['fecha_estim_parto']),
+              ),
               if (cerda['fecha_real_parto'] != null)
-                _buildInfoParto("Fecha real parto", _formatearFecha(cerda['fecha_real_parto'])),
-              _buildInfoParto("Lechones esperados", cerda['num_lechones']?.toString() ?? 'No definido'),
-              if (cerda['fecha_estim_parto'] != null && cerda['fecha_real_parto'] == null)
-                _buildInfoParto("Días restantes", _diasRestantes(cerda['fecha_estim_parto']).toString()),
+                _buildInfoParto(
+                  "Fecha real parto",
+                  _formatearFecha(cerda['fecha_real_parto']),
+                ),
+              // 'Lechones esperados' removed: only registered lechones nacidos serán almacenados
+              if (cerda['fecha_estim_parto'] != null &&
+                  cerda['fecha_real_parto'] == null)
+                _buildInfoParto(
+                  "Días restantes",
+                  _diasRestantes(cerda['fecha_estim_parto']).toString(),
+                ),
             ],
           ),
         ),
@@ -190,7 +203,10 @@ class _PartosScreenState extends State<PartosScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text("$titulo: ", style: const TextStyle(fontWeight: FontWeight.bold)),
+          Text(
+            "$titulo: ",
+            style: const TextStyle(fontWeight: FontWeight.bold),
+          ),
           Expanded(child: Text(valor)),
         ],
       ),
@@ -199,7 +215,9 @@ class _PartosScreenState extends State<PartosScreen> {
 
   Widget _buildResumenPartos() {
     final cerdas = _obtenerCerdasConPartos();
-    final realizados = cerdas.where((c) => c['fecha_real_parto'] != null).length;
+    final realizados = cerdas
+        .where((c) => c['fecha_real_parto'] != null)
+        .length;
     final proximos = cerdas.where((c) => _esPartoProximo(c)).length;
     final atrasados = cerdas.where((c) => _esPartoAtrasado(c)).length;
 
@@ -216,10 +234,29 @@ class _PartosScreenState extends State<PartosScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildEstadisticaParto("Total", cerdas.length, Icons.pregnant_woman),
-                _buildEstadisticaParto("Realizados", realizados, Icons.check_circle, Colors.green),
-                _buildEstadisticaParto("Próximos", proximos, Icons.schedule, Colors.orange),
-                _buildEstadisticaParto("Atrasados", atrasados, Icons.warning, Colors.red),
+                _buildEstadisticaParto(
+                  "Total",
+                  cerdas.length,
+                  Icons.pregnant_woman,
+                ),
+                _buildEstadisticaParto(
+                  "Realizados",
+                  realizados,
+                  Icons.check_circle,
+                  Colors.green,
+                ),
+                _buildEstadisticaParto(
+                  "Próximos",
+                  proximos,
+                  Icons.schedule,
+                  Colors.orange,
+                ),
+                _buildEstadisticaParto(
+                  "Atrasados",
+                  atrasados,
+                  Icons.warning,
+                  Colors.red,
+                ),
               ],
             ),
           ],
@@ -228,7 +265,12 @@ class _PartosScreenState extends State<PartosScreen> {
     );
   }
 
-  Widget _buildEstadisticaParto(String titulo, int valor, IconData icono, [Color? color]) {
+  Widget _buildEstadisticaParto(
+    String titulo,
+    int valor,
+    IconData icono, [
+    Color? color,
+  ]) {
     return Column(
       children: [
         Icon(icono, color: color ?? Colors.pink, size: 24),
@@ -241,10 +283,7 @@ class _PartosScreenState extends State<PartosScreen> {
             color: color ?? Colors.black,
           ),
         ),
-        Text(
-          titulo,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
+        Text(titulo, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
   }
@@ -267,16 +306,18 @@ class _PartosScreenState extends State<PartosScreen> {
               scrollDirection: Axis.horizontal,
               child: Row(
                 children: ['Todos', 'Proximos', 'Realizados']
-                    .map((filtro) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: FilterChip(
-                            label: Text(filtro),
-                            selected: _filtroPartos == filtro,
-                            onSelected: (selected) {
-                              setState(() => _filtroPartos = filtro);
-                            },
-                          ),
-                        ))
+                    .map(
+                      (filtro) => Padding(
+                        padding: const EdgeInsets.only(right: 8),
+                        child: FilterChip(
+                          label: Text(filtro),
+                          selected: _filtroPartos == filtro,
+                          onSelected: (selected) {
+                            setState(() => _filtroPartos = filtro);
+                          },
+                        ),
+                      ),
+                    )
                     .toList(),
               ),
             ),
@@ -292,7 +333,11 @@ class _PartosScreenState extends State<PartosScreen> {
                     child: Column(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Icon(Icons.pregnant_woman, size: 80, color: Colors.grey),
+                        Icon(
+                          Icons.pregnant_woman,
+                          size: 80,
+                          color: Colors.grey,
+                        ),
                         SizedBox(height: 16),
                         Text(
                           "No hay partos registrados",
@@ -314,7 +359,10 @@ class _PartosScreenState extends State<PartosScreen> {
                       final colorEstado = _getColorEstadoParto(cerda);
 
                       return Card(
-                        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                        margin: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 4,
+                        ),
                         child: ListTile(
                           leading: Container(
                             padding: const EdgeInsets.all(8),
@@ -336,21 +384,31 @@ class _PartosScreenState extends State<PartosScreen> {
                             children: [
                               Text("Estado: ${_getTextoEstadoParto(cerda)}"),
                               if (cerda['fecha_estim_parto'] != null)
-                                Text("Estimado: ${_formatearFecha(cerda['fecha_estim_parto'])}"),
+                                Text(
+                                  "Estimado: ${_formatearFecha(cerda['fecha_estim_parto'])}",
+                                ),
                               if (cerda['fecha_real_parto'] != null)
-                                Text("Realizado: ${_formatearFecha(cerda['fecha_real_parto'])}"),
+                                Text(
+                                  "Realizado: ${_formatearFecha(cerda['fecha_real_parto'])}",
+                                ),
                             ],
                           ),
                           trailing: cerda['fecha_real_parto'] == null
                               ? ElevatedButton(
-                                  onPressed: () => _marcarPartoRealizado(cerda, cerda['hiveKey']),
+                                  onPressed: () => _marcarPartoRealizado(
+                                    cerda,
+                                    cerda['hiveKey'],
+                                  ),
                                   style: ElevatedButton.styleFrom(
                                     backgroundColor: Colors.green,
                                     foregroundColor: Colors.white,
                                   ),
                                   child: const Text('Realizado'),
                                 )
-                              : const Icon(Icons.check_circle, color: Colors.green),
+                              : const Icon(
+                                  Icons.check_circle,
+                                  color: Colors.green,
+                                ),
                           onTap: () => _verDetallesParto(cerda),
                         ),
                       );

@@ -37,21 +37,21 @@ class _HistorialScreenState extends State<HistorialScreen> {
     try {
       final keys = box.keys.toList();
       print('📦 Keys en Hive: $keys');
-      
+
       final cerdasTemporales = <Map<String, dynamic>>[];
-      
+
       for (var key in keys) {
         final data = box.get(key);
         print('🔍 Key: $key, Data: $data');
-        
+
         if (data is Map && data['type'] == 'sow') {
           cerdasTemporales.add({...data, 'hiveKey': key});
         }
       }
-      
+
       _cerdas = cerdasTemporales;
       print('🐷 Total cerdas cargadas: ${_cerdas.length}');
-      
+
       setState(() => _isLoading = false);
     } catch (e) {
       print('❌ Error cargando cerdas: $e');
@@ -69,9 +69,11 @@ class _HistorialScreenState extends State<HistorialScreen> {
         case 'No preñadas':
           return cerda['estado_reproductivo'] == 'No preñada';
         case 'Con partos':
-          return cerda['partos'] != null && (cerda['partos'] as List).isNotEmpty;
+          return cerda['partos'] != null &&
+              (cerda['partos'] as List).isNotEmpty;
         case 'Con vacunas':
-          return cerda['vacunas'] != null && (cerda['vacunas'] as List).isNotEmpty;
+          return cerda['vacunas'] != null &&
+              (cerda['vacunas'] as List).isNotEmpty;
         default:
           return true;
       }
@@ -94,7 +96,7 @@ class _HistorialScreenState extends State<HistorialScreen> {
       final fechaParto = DateTime.parse(fechaPartoString);
       final ahora = DateTime.now();
       final diferencia = fechaParto.difference(ahora).inDays;
-      
+
       if (diferencia > 0) {
         return ' ($diferencia días)';
       } else if (diferencia == 0) {
@@ -110,10 +112,10 @@ class _HistorialScreenState extends State<HistorialScreen> {
   Widget _buildCerdaExpandible(Map<String, dynamic> cerda) {
     final key = cerda['hiveKey'];
     final estaExpandida = _cerdasExpandidas[key] ?? false;
-    
+
     final partos = List<Map<String, dynamic>>.from(cerda['partos'] ?? []);
     final vacunas = List<Map<String, dynamic>>.from(cerda['vacunas'] ?? []);
-    
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 3,
@@ -127,7 +129,9 @@ class _HistorialScreenState extends State<HistorialScreen> {
         },
         leading: Icon(
           Icons.pets,
-          color: cerda['estado_reproductivo'] == 'Preñada' ? Colors.green : Colors.grey,
+          color: cerda['estado_reproductivo'] == 'Preñada'
+              ? Colors.green
+              : Colors.grey,
         ),
         title: Text(
           cerda['nombre'] ?? 'Sin nombre',
@@ -146,7 +150,7 @@ class _HistorialScreenState extends State<HistorialScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                      // INFORMACIÓN BÁSICA
+                // INFORMACIÓN BÁSICA
                 const Text(
                   '📋 Información General',
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
@@ -164,30 +168,37 @@ class _HistorialScreenState extends State<HistorialScreen> {
                   children: [
                     const Icon(Icons.female, size: 16, color: Colors.grey),
                     const SizedBox(width: 8),
-                    Text('Estado: ${cerda['estado_reproductivo'] ?? 'No especificado'}'),
+                    Text(
+                      'Estado: ${cerda['estado_reproductivo'] ?? 'No especificado'}',
+                    ),
                   ],
                 ),
-                
+
                 // ESTADO ACTUAL DE PREÑEZ
-                if (cerda['embarazada'] == true || (cerda['lechones_nacidos'] ?? 0) > 0) ...[
+                if (cerda['embarazada'] == true ||
+                    (cerda['lechones_nacidos'] ?? 0) > 0) ...[
                   const SizedBox(height: 12),
                   const Text(
-                    '🤰 Estado de Preñez Actual',
+                    '🐷 Estado de Preñez Actual',
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  if (cerda['embarazada'] == true) 
+                  if (cerda['embarazada'] == true)
                     Row(
                       children: [
                         const Icon(Icons.pets, size: 16, color: Colors.blue),
                         const SizedBox(width: 8),
-                        Text('Preña: ${cerda['lechones_en_vientre'] ?? 0} lechones esperados'),
+                        const Text('Preña'),
                       ],
                     ),
-                  if ((cerda['lechones_nacidos'] ?? 0) > 0) 
+                  if ((cerda['lechones_nacidos'] ?? 0) > 0)
                     Row(
                       children: [
-                        const Icon(Icons.child_friendly, size: 16, color: Colors.green),
+                        const Icon(
+                          Icons.child_friendly,
+                          size: 16,
+                          color: Colors.green,
+                        ),
                         const SizedBox(width: 8),
                         Text('Lechones Nacidos: ${cerda['lechones_nacidos']}'),
                       ],
@@ -215,12 +226,14 @@ class _HistorialScreenState extends State<HistorialScreen> {
                         },
                         icon: const Icon(Icons.open_in_new),
                         label: const Text('Ver detalle'),
-                        style: ElevatedButton.styleFrom(backgroundColor: Colors.pink),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.pink,
+                        ),
                       ),
                     ),
                   ],
                 ),
-                
+
                 // FECHAS IMPORTANTES SI ESTÁ PREÑADA
                 if (cerda['estado_reproductivo'] == 'Preñada') ...[
                   const SizedBox(height: 12),
@@ -229,24 +242,36 @@ class _HistorialScreenState extends State<HistorialScreen> {
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   const SizedBox(height: 8),
-                  if (cerda['fecha_prenez_actual'] != null) 
+                  if (cerda['fecha_prenez_actual'] != null)
                     Row(
                       children: [
-                        const Icon(Icons.calendar_today, size: 16, color: Colors.green),
+                        const Icon(
+                          Icons.calendar_today,
+                          size: 16,
+                          color: Colors.green,
+                        ),
                         const SizedBox(width: 8),
-                        Text('Preñez: ${_formatDate(cerda['fecha_prenez_actual'])}'),
+                        Text(
+                          'Preñez: ${_formatDate(cerda['fecha_prenez_actual'])}',
+                        ),
                       ],
                     ),
-                  if (cerda['fecha_parto_calculado'] != null) 
+                  if (cerda['fecha_parto_calculado'] != null)
                     Row(
                       children: [
-                        const Icon(Icons.event_available, size: 16, color: Colors.green),
+                        const Icon(
+                          Icons.event_available,
+                          size: 16,
+                          color: Colors.green,
+                        ),
                         const SizedBox(width: 8),
-                        Text('Parto estimado: ${_formatDate(cerda['fecha_parto_calculado'])}${_calcularDiasParto(cerda['fecha_parto_calculado'])}'),
+                        Text(
+                          'Parto estimado: ${_formatDate(cerda['fecha_parto_calculado'])}${_calcularDiasParto(cerda['fecha_parto_calculado'])}',
+                        ),
                       ],
                     ),
                 ],
-                
+
                 // HISTORIAL DE PARTOS
                 const SizedBox(height: 16),
                 const Text(
@@ -255,7 +280,10 @@ class _HistorialScreenState extends State<HistorialScreen> {
                 ),
                 const SizedBox(height: 8),
                 if (partos.isEmpty)
-                  const Text('  No hay partos registrados', style: TextStyle(color: Colors.grey)),
+                  const Text(
+                    '  No hay partos registrados',
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 if (partos.isNotEmpty)
                   ...partos.asMap().entries.map((entry) {
                     final index = entry.key;
@@ -275,20 +303,29 @@ class _HistorialScreenState extends State<HistorialScreen> {
                             style: const TextStyle(fontWeight: FontWeight.bold),
                           ),
                           if (parto['fecha_prez'] != null)
-                            Text('  • Preñez: ${_formatDate(parto['fecha_prez'])}'),
+                            Text(
+                              '  • Preñez: ${_formatDate(parto['fecha_prez'])}',
+                            ),
                           if (parto['fecha_confirmacion'] != null)
-                            Text('  • Confirmación: ${_formatDate(parto['fecha_confirmacion'])}'),
+                            Text(
+                              '  • Confirmación: ${_formatDate(parto['fecha_confirmacion'])}',
+                            ),
                           if (parto['fecha_parto'] != null)
-                            Text('  • Parto: ${_formatDate(parto['fecha_parto'])}'),
+                            Text(
+                              '  • Parto: ${_formatDate(parto['fecha_parto'])}',
+                            ),
                           if (parto['num_lechones'] != null)
                             Text('  • Lechones: ${parto['num_lechones']}'),
-                          if (parto['observaciones'] != null && parto['observaciones'].isNotEmpty)
-                            Text('  • Observaciones: ${parto['observaciones']}'),
+                          if (parto['observaciones'] != null &&
+                              parto['observaciones'].isNotEmpty)
+                            Text(
+                              '  • Observaciones: ${parto['observaciones']}',
+                            ),
                         ],
                       ),
                     );
                   }),
-                
+
                 // HISTORIAL DE VACUNAS
                 const SizedBox(height: 16),
                 const Text(
@@ -297,7 +334,10 @@ class _HistorialScreenState extends State<HistorialScreen> {
                 ),
                 const SizedBox(height: 8),
                 if (vacunas.isEmpty)
-                  const Text('  No hay vacunas registradas', style: TextStyle(color: Colors.grey)),
+                  const Text(
+                    '  No hay vacunas registradas',
+                    style: TextStyle(color: Colors.grey),
+                  ),
                 if (vacunas.isNotEmpty)
                   ...vacunas.map((vacuna) {
                     return Container(
@@ -309,7 +349,11 @@ class _HistorialScreenState extends State<HistorialScreen> {
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.vaccines, size: 16, color: Colors.blue),
+                          const Icon(
+                            Icons.vaccines,
+                            size: 16,
+                            color: Colors.blue,
+                          ),
                           const SizedBox(width: 8),
                           Expanded(
                             child: Text(
@@ -320,12 +364,16 @@ class _HistorialScreenState extends State<HistorialScreen> {
                       ),
                     );
                   }),
-                
+
                 // METADATOS
                 const SizedBox(height: 16),
                 const Text(
                   '📊 Información del Sistema',
-                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -337,7 +385,7 @@ class _HistorialScreenState extends State<HistorialScreen> {
                     'Actualizada: ${_formatDate(cerda['updatedAt'])}',
                     style: const TextStyle(fontSize: 12, color: Colors.grey),
                   ),
-                  
+
                 // HISTORIAL DE CAMBIOS
                 const SizedBox(height: 16),
                 const Text(
@@ -345,18 +393,25 @@ class _HistorialScreenState extends State<HistorialScreen> {
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
                 const SizedBox(height: 8),
-                if (cerda['historial'] == null || (cerda['historial'] as List).isEmpty)
-                  const Text('  No hay cambios registrados', style: TextStyle(color: Colors.grey))
+                if (cerda['historial'] == null ||
+                    (cerda['historial'] as List).isEmpty)
+                  const Text(
+                    '  No hay cambios registrados',
+                    style: TextStyle(color: Colors.grey),
+                  )
                 else
                   ...(cerda['historial'] as List).map((cambio) {
-                    final cambios = cambio['cambios'] as Map<String, dynamic>? ?? {};
+                    final cambios =
+                        cambio['cambios'] as Map<String, dynamic>? ?? {};
                     return Container(
                       margin: const EdgeInsets.only(bottom: 8),
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
                         color: Colors.amber[50],
                         borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.amber[200] ?? Colors.amber),
+                        border: Border.all(
+                          color: Colors.amber[200] ?? Colors.amber,
+                        ),
                       ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -370,10 +425,12 @@ class _HistorialScreenState extends State<HistorialScreen> {
                             ),
                           ),
                           const SizedBox(height: 4),
-                          ...cambios.entries.map((c) => Text(
-                            '  • ${c.key}: ${c.value}',
-                            style: const TextStyle(fontSize: 12),
-                          )),
+                          ...cambios.entries.map(
+                            (c) => Text(
+                              '  • ${c.key}: ${c.value}',
+                              style: const TextStyle(fontSize: 12),
+                            ),
+                          ),
                         ],
                       ),
                     );
@@ -388,8 +445,10 @@ class _HistorialScreenState extends State<HistorialScreen> {
 
   Widget _buildResumenEstadisticas() {
     final cerdas = _obtenerCerdasFiltradas();
-    final prenadas = cerdas.where((c) => c['estado_reproductivo'] == 'Preñada').length;
-    
+    final prenadas = cerdas
+        .where((c) => c['estado_reproductivo'] == 'Preñada')
+        .length;
+
     // Calcular total de lechones de todos los partos
     int totalLechones = 0;
     for (var cerda in cerdas) {
@@ -419,7 +478,11 @@ class _HistorialScreenState extends State<HistorialScreen> {
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildEstadisticaItem("Cerdas", cerdas.length, Icons.pets),
-                _buildEstadisticaItem("Preñadas", prenadas, Icons.pregnant_woman),
+                _buildEstadisticaItem(
+                  "Preñadas",
+                  prenadas,
+                  Icons.pregnant_woman,
+                ),
                 _buildEstadisticaItem("Lechones", totalLechones, Icons.face),
                 _buildEstadisticaItem("Vacunas", totalVacunas, Icons.vaccines),
               ],
@@ -439,10 +502,7 @@ class _HistorialScreenState extends State<HistorialScreen> {
           valor.toString(),
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
-        Text(
-          titulo,
-          style: const TextStyle(fontSize: 12, color: Colors.grey),
-        ),
+        Text(titulo, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
   }
@@ -488,23 +548,27 @@ class _HistorialScreenState extends State<HistorialScreen> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: [
-                  'Todas', 
-                  'Preñadas', 
-                  'No preñadas', 
-                  'Con partos', 
-                  'Con vacunas'
-                ].map((filtro) => Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: FilterChip(
-                        label: Text(filtro),
-                        selected: _filtroSeleccionado == filtro,
-                        onSelected: (selected) {
-                          setState(() => _filtroSeleccionado = filtro);
-                        },
-                      ),
-                    ))
-                    .toList(),
+                children:
+                    [
+                          'Todas',
+                          'Preñadas',
+                          'No preñadas',
+                          'Con partos',
+                          'Con vacunas',
+                        ]
+                        .map(
+                          (filtro) => Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              label: Text(filtro),
+                              selected: _filtroSeleccionado == filtro,
+                              onSelected: (selected) {
+                                setState(() => _filtroSeleccionado = filtro);
+                              },
+                            ),
+                          ),
+                        )
+                        .toList(),
               ),
             ),
           ),
