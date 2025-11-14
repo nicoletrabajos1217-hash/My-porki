@@ -44,7 +44,7 @@ class _CerdasScreenState extends State<CerdasScreen> {
         builder: (_) => _CerdaDetailScreen(cerdaExistente: cerda, hiveKey: key),
       ),
     );
-    
+
     // Refrescar lista si hubo cambios
     if (resultado == true) {
       setState(() {});
@@ -59,7 +59,10 @@ class _CerdasScreenState extends State<CerdasScreen> {
         actions: [
           IconButton(
             tooltip: _soloActuales ? 'Mostrar todas' : 'Mostrar solo actuales',
-            icon: Icon(_soloActuales ? Icons.filter_alt_off : Icons.filter_alt, color: Colors.white),
+            icon: Icon(
+              _soloActuales ? Icons.filter_alt_off : Icons.filter_alt,
+              color: Colors.white,
+            ),
             onPressed: () => setState(() => _soloActuales = !_soloActuales),
           ),
         ],
@@ -73,15 +76,20 @@ class _CerdasScreenState extends State<CerdasScreen> {
               builder: (context, Box box, _) {
                 final all = box.values
                     .where((item) => item is Map && item['type'] == 'sow')
-                    .cast<Map>().toList();
+                    .cast<Map>()
+                    .toList();
 
                 List cerdas = all;
                 if (_soloActuales) {
                   cerdas = all.where((item) {
                     final cerda = Map<String, dynamic>.from(item);
-                    final estado = (cerda['estado_reproductivo'] ?? '').toString().toLowerCase();
+                    final estado = (cerda['estado_reproductivo'] ?? '')
+                        .toString()
+                        .toLowerCase();
                     // Considerar no actuales si fueron retiradas/muertas/vendidas
-                    return !(estado.contains('retir') || estado.contains('muert') || estado.contains('vend'));
+                    return !(estado.contains('retir') ||
+                        estado.contains('muert') ||
+                        estado.contains('vend'));
                   }).toList();
                 }
 
@@ -99,7 +107,10 @@ class _CerdasScreenState extends State<CerdasScreen> {
                   itemBuilder: (context, index) {
                     final cerda = cerdas[index];
                     // obtener hive key buscando la posición real
-                    final key = box.keys.firstWhere((k) => box.get(k) == cerda, orElse: () => null);
+                    final key = box.keys.firstWhere(
+                      (k) => box.get(k) == cerda,
+                      orElse: () => null,
+                    );
                     final nombre = cerda['nombre'] ?? 'Sin nombre';
                     final id = cerda['identificacion'] ?? 'Sin ID';
                     final embarazada = cerda['embarazada'] ?? false;
@@ -147,7 +158,9 @@ class _CerdasScreenState extends State<CerdasScreen> {
                             ],
                           ],
                         ),
-                        isThreeLine: embarazada || lechonesNacidos > 0 ? true : false,
+                        isThreeLine: embarazada || lechonesNacidos > 0
+                            ? true
+                            : false,
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -159,10 +172,23 @@ class _CerdasScreenState extends State<CerdasScreen> {
                                   context: context,
                                   builder: (context) => AlertDialog(
                                     title: const Text('Eliminar Cerda'),
-                                    content: Text('¿Deseas eliminar "$nombre"? Esta acción se eliminará localmente y se marcará para sincronizar la eliminación.'),
+                                    content: Text(
+                                      '¿Deseas eliminar "$nombre"? Esta acción se eliminará localmente y se marcará para sincronizar la eliminación.',
+                                    ),
                                     actions: [
-                                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
-                                      TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Eliminar', style: TextStyle(color: Colors.red))),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, false),
+                                        child: const Text('Cancelar'),
+                                      ),
+                                      TextButton(
+                                        onPressed: () =>
+                                            Navigator.pop(context, true),
+                                        child: const Text(
+                                          'Eliminar',
+                                          style: TextStyle(color: Colors.red),
+                                        ),
+                                      ),
                                     ],
                                   ),
                                 );
@@ -175,18 +201,26 @@ class _CerdasScreenState extends State<CerdasScreen> {
                                     // Si la cerda tiene sowId, usar SowService para manejar eliminación y sync
                                     final sowId = cerda['sowId'];
                                     if (sowId != null) {
-                                      await SowService.eliminarCerda(sowId.toString());
+                                      await SowService.eliminarCerda(
+                                        sowId.toString(),
+                                      );
                                     }
 
                                     if (!mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Cerda "$nombre" eliminada')), 
+                                      SnackBar(
+                                        content: Text(
+                                          'Cerda "$nombre" eliminada',
+                                        ),
+                                      ),
                                     );
                                     setState(() {});
                                   } catch (e) {
                                     if (!mounted) return;
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      SnackBar(content: Text('Error al eliminar: $e')),
+                                      SnackBar(
+                                        content: Text('Error al eliminar: $e'),
+                                      ),
                                     );
                                   }
                                 }
@@ -278,16 +312,18 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
       Map<String, dynamic> cambios = {};
       if (widget.cerdaExistente != null) {
         if (widget.cerdaExistente!['embarazada'] != _embarazada) {
-          cambios['embarazada'] = 
-            _embarazada ? 'Preñada ahora' : 'Ya no preñada';
+          cambios['embarazada'] = _embarazada
+              ? 'Preñada ahora'
+              : 'Ya no preñada';
         }
         if (widget.cerdaExistente!['lechones_nacidos'] != _lechonesNacidos) {
-          cambios['lechones_nacidos'] = 
-            'De ${widget.cerdaExistente!['lechones_nacidos'] ?? 0} a $_lechonesNacidos';
+          cambios['lechones_nacidos'] =
+              'De ${widget.cerdaExistente!['lechones_nacidos'] ?? 0} a $_lechonesNacidos';
         }
-        if (widget.cerdaExistente!['lechones_en_vientre'] != _lechonesEnVientre) {
-          cambios['lechones_en_vientre'] = 
-            'De ${widget.cerdaExistente!['lechones_en_vientre'] ?? 0} a $_lechonesEnVientre';
+        if (widget.cerdaExistente!['lechones_en_vientre'] !=
+            _lechonesEnVientre) {
+          cambios['lechones_en_vientre'] =
+              'De ${widget.cerdaExistente!['lechones_en_vientre'] ?? 0} a $_lechonesEnVientre';
         }
       }
 
@@ -312,7 +348,9 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
         'vacunas': _vacunas,
         'historial': _historial,
         'updatedAt': DateTime.now().toIso8601String(),
-        'sowId': widget.cerdaExistente?['sowId'] ?? 'sow_${DateTime.now().millisecondsSinceEpoch}',
+        'sowId':
+            widget.cerdaExistente?['sowId'] ??
+            'sow_${DateTime.now().millisecondsSinceEpoch}',
       };
 
       // Guardar en Hive
@@ -336,7 +374,10 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
           backgroundColor: Colors.green,
         ),
       );
-      Navigator.pop(context, true); // Retorna true para indicar que hubo cambios
+      Navigator.pop(
+        context,
+        true,
+      ); // Retorna true para indicar que hubo cambios
     } catch (e) {
       if (!mounted) return;
       print('❌ Error guardando cerda: $e');
@@ -353,94 +394,10 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
     }
   }
 
-  void _agregarParto() {
-    setState(() {
-      _partos.add({
-        'fecha_prez': null,
-        'fecha_confirmacion': null,
-        'fecha_parto': null,
-        'num_lechones': null,
-        'observaciones': '',
-      });
-    });
-  }
-
   void _agregarVacuna() {
     setState(() {
       _vacunas.add({'nombre': '', 'fecha': null});
     });
-  }
-
-  Future<void> _agregarPartoRapido() async {
-    final TextEditingController _numCtrl = TextEditingController();
-    final result = await showDialog<int?>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Agregar parto rápido'),
-          content: TextField(
-            controller: _numCtrl,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Número de lechones'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-            ElevatedButton(
-              onPressed: () {
-                final num = int.tryParse(_numCtrl.text) ?? 0;
-                Navigator.pop(context, num);
-              },
-              child: const Text('Agregar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (result != null) {
-      setState(() {
-        _partos.add({
-          'fecha_prez': null,
-          'fecha_confirmacion': null,
-          'fecha_parto': DateTime.now().toIso8601String(),
-          'num_lechones': result,
-          'observaciones': 'Parto rápido registrado',
-        });
-      });
-      await _guardarCerda();
-    }
-  }
-
-  Future<void> _agregarVacunaRapida() async {
-    final TextEditingController _nameCtrl = TextEditingController();
-    final result = await showDialog<String?>(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: const Text('Agregar vacuna rápida'),
-          content: TextField(
-            controller: _nameCtrl,
-            decoration: const InputDecoration(labelText: 'Nombre de la vacuna'),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
-            ElevatedButton(
-              onPressed: () {
-                Navigator.pop(context, _nameCtrl.text.trim());
-              },
-              child: const Text('Agregar'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (result != null && result.isNotEmpty) {
-      setState(() {
-        _vacunas.add({'nombre': result, 'fecha': DateTime.now().toIso8601String()});
-      });
-      await _guardarCerda();
-    }
   }
 
   Future<void> _seleccionarFecha(
@@ -501,417 +458,342 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
                 key: _formKey,
                 child: Column(
                   children: [
-              TextFormField(
-                controller: _nombreCtrl,
-                decoration: const InputDecoration(labelText: 'Nombre'),
-                validator: (v) =>
-                    v == null || v.isEmpty ? 'Ingrese un nombre' : null,
-              ),
-              const SizedBox(height: 10),
-              TextFormField(
-                controller: _identificacionCtrl,
-                decoration: const InputDecoration(labelText: 'Identificación'),
-              ),
-              const SizedBox(height: 10),
-              DropdownButtonFormField<String>(
-                value: _estadoReproductivo,
-                decoration: const InputDecoration(
-                  labelText: 'Estado reproductivo',
-                ),
-                items: const [
-                  DropdownMenuItem(value: 'Preñada', child: Text('Preñada')),
-                  DropdownMenuItem(
-                    value: 'No preñada',
-                    child: Text('No preñada'),
-                  ),
-                ],
-                onChanged: (v) => setState(() => _estadoReproductivo = v),
-              ),
-              const SizedBox(height: 20),
-
-              // 🤰 NUEVA SECCIÓN: Estado de Preñez
-              Card(
-                color: Colors.blue[50],
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text(
-                        '🤰 Estado de Preñez',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.blue,
+                    TextFormField(
+                      controller: _nombreCtrl,
+                      decoration: const InputDecoration(labelText: 'Nombre'),
+                      validator: (v) =>
+                          v == null || v.isEmpty ? 'Ingrese un nombre' : null,
+                    ),
+                    const SizedBox(height: 10),
+                    TextFormField(
+                      controller: _identificacionCtrl,
+                      decoration: const InputDecoration(
+                        labelText: 'Identificación',
+                      ),
+                    ),
+                    const SizedBox(height: 10),
+                    DropdownButtonFormField<String>(
+                      value: _estadoReproductivo,
+                      decoration: const InputDecoration(
+                        labelText: 'Estado reproductivo',
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: 'Preñada',
+                          child: Text('Preñada'),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      
-                      // Check box para preñada
-                      Row(
-                        children: [
-                          Checkbox(
-                            value: _embarazada,
-                            activeColor: Colors.pink,
-                            onChanged: (value) {
-                              setState(() => _embarazada = value ?? false);
-                            },
-                          ),
-                          const Text('Cerda actualmente preñada'),
-                        ],
-                      ),
-                      
-                      if (_embarazada) ...[
-                        const SizedBox(height: 8),
-                        TextFormField(
-                          initialValue: _lechonesEnVientre.toString(),
-                          decoration: const InputDecoration(
-                            labelText: 'Lechones esperados',
-                            hintText: 'Cantidad estimada',
-                          ),
-                          keyboardType: TextInputType.number,
-                          onChanged: (v) => _lechonesEnVientre = int.tryParse(v) ?? 0,
+                        DropdownMenuItem(
+                          value: 'No preñada',
+                          child: Text('No preñada'),
                         ),
                       ],
-                      
-                      const SizedBox(height: 12),
-                      TextFormField(
-                        controller: _lechonesCtrl,
-                        decoration: const InputDecoration(
-                          labelText: 'Lechones nacidos totales',
-                          hintText: '0',
+                      onChanged: (v) => setState(() => _estadoReproductivo = v),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 🐷 Información General
+                    Card(
+                      color: Colors.pink[50],
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Información General 🐷',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.pink,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+
+                            TextFormField(
+                              controller: _lechonesCtrl,
+                              decoration: const InputDecoration(
+                                labelText: 'Cerditos que parió 🐷',
+                                hintText: '0',
+                              ),
+                              keyboardType: TextInputType.number,
+                              onChanged: (v) =>
+                                  _lechonesNacidos = int.tryParse(v) ?? 0,
+                            ),
+                          ],
                         ),
-                        keyboardType: TextInputType.number,
-                        onChanged: (v) => _lechonesNacidos = int.tryParse(v) ?? 0,
                       ),
-                      
-                      if (widget.cerdaExistente != null) ...[
-                        const SizedBox(height: 12),
-                        ElevatedButton.icon(
-                          onPressed: _guardarCerda,
-                          icon: const Icon(Icons.save),
-                          label: const Text('Guardar Cambios 💾'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: Colors.blue,
-                            minimumSize: const Size.fromHeight(40),
+                    ),
+                    const SizedBox(height: 20),
+
+                    // 🐷 Resumen de Cerditos
+                    if (_lechonesNacidos > 0)
+                      Card(
+                        color: Colors.green[50],
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Resumen de Cerditos 🐷',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.green,
+                                ),
+                              ),
+                              const SizedBox(height: 12),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: Colors.white,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: Colors.green[200] ?? Colors.green,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    const Text(
+                                      'Total:',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    Text(
+                                      '$_lechonesNacidos 🐷',
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 18,
+                                        color: Colors.green,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 20),
+                      ),
+                    const SizedBox(height: 20),
 
-              // Acciones rápidas: agregar parto o vacuna sin llenar todo el formulario
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  ElevatedButton.icon(
-                    onPressed: _agregarPartoRapido,
-                    icon: const Icon(Icons.add_circle_outline),
-                    label: const Text('Parto rápido'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
-                  ),
-                  ElevatedButton.icon(
-                    onPressed: _agregarVacunaRapida,
-                    icon: const Icon(Icons.medication_liquid),
-                    label: const Text('Vacuna rápida'),
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
-                  ),
-                ],
-              ),
-
-
-              // 🐖 Partos
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Historial de Partos 🐷',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  IconButton(
-                    onPressed: _agregarParto,
-                    icon: const Icon(Icons.add_circle, color: Colors.pink),
-                  ),
-                ],
-              ),
-              ..._partos.asMap().entries.map((entry) {
-                final i = entry.key;
-                final parto = entry.value;
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 6),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
+                    // 💉 Vacunas
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'Parto ${i + 1} 🐽',
-                          style: const TextStyle(
+                        const Text(
+                          'Vacunas 💉',
+                          style: TextStyle(
+                            fontSize: 16,
                             fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        IconButton(
+                          onPressed: _agregarVacuna,
+                          icon: const Icon(
+                            Icons.add_circle,
                             color: Colors.pink,
                           ),
                         ),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextButton(
-                                onPressed: () => _seleccionarFecha(
-                                  context,
-                                  parto,
-                                  'fecha_prez',
-                                ),
-                                child: Text(
-                                  'Preñez: ${_formatearFecha(parto['fecha_prez'])}',
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: TextButton(
-                                onPressed: () => _seleccionarFecha(
-                                  context,
-                                  parto,
-                                  'fecha_confirmacion',
-                                ),
-                                child: Text(
-                                  'Confirmación: ${_formatearFecha(parto['fecha_confirmacion'])}',
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextButton(
-                                onPressed: () => _seleccionarFecha(
-                                  context,
-                                  parto,
-                                  'fecha_parto',
-                                ),
-                                child: Text(
-                                  'Parto: ${_formatearFecha(parto['fecha_parto'])}',
-                                ),
-                              ),
-                            ),
-                            Expanded(
-                              child: TextFormField(
-                                initialValue:
-                                    parto['num_lechones']?.toString() ?? '',
+                      ],
+                    ),
+                    ..._vacunas.asMap().entries.map((entry) {
+                      final i = entry.key;
+                      final vacuna = entry.value;
+                      return Card(
+                        margin: const EdgeInsets.symmetric(vertical: 6),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Column(
+                            children: [
+                              TextFormField(
+                                initialValue: vacuna['nombre'] ?? '',
                                 decoration: const InputDecoration(
-                                  labelText: 'Lechones nacidos',
+                                  labelText: 'Nombre vacuna',
                                 ),
-                                keyboardType: TextInputType.number,
-                                onChanged: (v) => parto['num_lechones'] =
-                                    int.tryParse(v) ?? 0,
+                                onChanged: (v) => vacuna['nombre'] = v,
                               ),
-                            ),
-                          ],
-                        ),
-                        TextFormField(
-                          initialValue: parto['observaciones'] ?? '',
-                          decoration: const InputDecoration(
-                            labelText: 'Observaciones',
-                          ),
-                          onChanged: (v) => parto['observaciones'] = v,
-                        ),
-                        TextButton.icon(
-                          onPressed: () => setState(() => _partos.removeAt(i)),
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          label: const Text('Eliminar parto'),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-
-              const SizedBox(height: 20),
-
-              // 💉 Vacunas
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Vacunas 💉',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  IconButton(
-                    onPressed: _agregarVacuna,
-                    icon: const Icon(Icons.add_circle, color: Colors.pink),
-                  ),
-                ],
-              ),
-              ..._vacunas.asMap().entries.map((entry) {
-                final i = entry.key;
-                final vacuna = entry.value;
-                return Card(
-                  margin: const EdgeInsets.symmetric(vertical: 6),
-                  child: Padding(
-                    padding: const EdgeInsets.all(8),
-                    child: Column(
-                      children: [
-                        TextFormField(
-                          initialValue: vacuna['nombre'] ?? '',
-                          decoration: const InputDecoration(
-                            labelText: 'Nombre vacuna',
-                          ),
-                          onChanged: (v) => vacuna['nombre'] = v,
-                        ),
-                        TextButton(
-                          onPressed: () =>
-                              _seleccionarFecha(context, vacuna, 'fecha'),
-                          child: Text(
-                            'Fecha: ${_formatearFecha(vacuna['fecha'])}',
-                          ),
-                        ),
-                        TextButton.icon(
-                          onPressed: () => setState(() => _vacunas.removeAt(i)),
-                          icon: const Icon(Icons.delete, color: Colors.red),
-                          label: const Text('Eliminar vacuna'),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              }),
-
-              const SizedBox(height: 30),
-              
-              // 📋 NUEVA SECCIÓN: Historial de Cambios
-              if (_historial.isNotEmpty || _embarazada || _lechonesNacidos > 0) ...[
-                Card(
-                  color: Colors.amber[50],
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            const Icon(Icons.history, color: Colors.amber),
-                            const SizedBox(width: 8),
-                            const Text(
-                              'Historial de Cambios 📋',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.amber,
+                              TextButton(
+                                onPressed: () =>
+                                    _seleccionarFecha(context, vacuna, 'fecha'),
+                                child: Text(
+                                  'Fecha: ${_formatearFecha(vacuna['fecha'])}',
+                                ),
                               ),
-                            ),
-                          ],
+                              TextButton.icon(
+                                onPressed: () =>
+                                    setState(() => _vacunas.removeAt(i)),
+                                icon: const Icon(
+                                  Icons.delete,
+                                  color: Colors.red,
+                                ),
+                                label: const Text('Eliminar vacuna'),
+                              ),
+                            ],
+                          ),
                         ),
-                        const SizedBox(height: 12),
-                        
-                        // Mostrar estado actual como primer item
-                        if (_embarazada || _lechonesNacidos > 0) ...[
-                          Container(
-                            margin: const EdgeInsets.only(bottom: 12),
-                            padding: const EdgeInsets.all(12),
-                            decoration: BoxDecoration(
-                              color: Colors.green[50],
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.green[200] ?? Colors.green),
-                            ),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
+                      );
+                    }),
+
+                    const SizedBox(height: 30),
+
+                    // 📋 NUEVA SECCIÓN: Historial de Cambios
+                    if (_historial.isNotEmpty ||
+                        _embarazada ||
+                        _lechonesNacidos > 0) ...[
+                      Card(
+                        color: Colors.amber[50],
+                        child: Padding(
+                          padding: const EdgeInsets.all(12),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  const Icon(
+                                    Icons.history,
+                                    color: Colors.amber,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Historial de Cambios 📋',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.amber,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 12),
+
+                              // Mostrar estado actual como primer item
+                              if (_embarazada || _lechonesNacidos > 0) ...[
+                                Container(
+                                  margin: const EdgeInsets.only(bottom: 12),
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.green[50],
+                                    borderRadius: BorderRadius.circular(6),
+                                    border: Border.all(
+                                      color: Colors.green[200] ?? Colors.green,
+                                    ),
+                                  ),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      const Text(
+                                        'Estado Actual 📊',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.bold,
+                                          color: Colors.green,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 6),
+                                      if (_embarazada)
+                                        Text(
+                                          '• Preñada: SÍ (${_lechonesEnVientre} lechones esperados)',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                      if (_lechonesNacidos > 0)
+                                        Text(
+                                          '• Lechones Nacidos: $_lechonesNacidos',
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+
+                              // Mostrar historial de cambios previos
+                              if (_historial.isNotEmpty) ...[
+                                const Divider(),
+                                const SizedBox(height: 8),
                                 const Text(
-                                  'Estado Actual 📊',
+                                  'Cambios Previos',
                                   style: TextStyle(
                                     fontSize: 12,
                                     fontWeight: FontWeight.bold,
-                                    color: Colors.green,
+                                    color: Colors.grey,
                                   ),
                                 ),
-                                const SizedBox(height: 6),
-                                if (_embarazada)
-                                  Text(
-                                    '• Preñada: SÍ (${_lechonesEnVientre} lechones esperados)',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                                if (_lechonesNacidos > 0)
-                                  Text(
-                                    '• Lechones Nacidos: $_lechonesNacidos',
-                                    style: const TextStyle(fontSize: 12),
-                                  ),
-                              ],
-                            ),
-                          ),
-                        ],
-                        
-                        // Mostrar historial de cambios previos
-                        if (_historial.isNotEmpty) ...[
-                          const Divider(),
-                          const SizedBox(height: 8),
-                          const Text(
-                            'Cambios Previos',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.bold,
-                              color: Colors.grey,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          ..._historial.asMap().entries.map((entry) {
-                            final cambio = entry.value;
-                            final cambios = cambio['cambios'] as Map<String, dynamic>;
-                            
-                            return Container(
-                              margin: const EdgeInsets.only(bottom: 8),
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.amber[200] ?? Colors.amber),
-                              ),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    _formatearFecha(cambio['fecha']),
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: Colors.grey,
+                                const SizedBox(height: 8),
+                                ..._historial.asMap().entries.map((entry) {
+                                  final cambio = entry.value;
+                                  final cambios =
+                                      cambio['cambios'] as Map<String, dynamic>;
+
+                                  return Container(
+                                    margin: const EdgeInsets.only(bottom: 8),
+                                    padding: const EdgeInsets.all(8),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white,
+                                      borderRadius: BorderRadius.circular(6),
+                                      border: Border.all(
+                                        color:
+                                            Colors.amber[200] ?? Colors.amber,
+                                      ),
                                     ),
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          _formatearFecha(cambio['fecha']),
+                                          style: const TextStyle(
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.bold,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                        const SizedBox(height: 4),
+                                        ...cambios.entries.map(
+                                          (c) => Text(
+                                            '• ${c.key}: ${c.value}',
+                                            style: const TextStyle(
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                }),
+                              ] else if (_embarazada ||
+                                  _lechonesNacidos > 0) ...[
+                                const SizedBox(height: 4),
+                                const Text(
+                                  'Sin cambios previos registrados',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: Colors.grey,
+                                    fontStyle: FontStyle.italic,
                                   ),
-                                  const SizedBox(height: 4),
-                                  ...cambios.entries.map((c) => Text(
-                                    '• ${c.key}: ${c.value}',
-                                    style: const TextStyle(fontSize: 12),
-                                  )),
-                                ],
-                              ),
-                            );
-                          }),
-                        ] else if (_embarazada || _lechonesNacidos > 0) ...[
-                          const SizedBox(height: 4),
-                          const Text(
-                            'Sin cambios previos registrados',
-                            style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
+                                ),
+                              ],
+                            ],
                           ),
-                        ],
-                      ],
+                        ),
+                      ),
+                      const SizedBox(height: 20),
+                    ],
+
+                    ElevatedButton.icon(
+                      onPressed: _guardarCerda,
+                      icon: const Icon(Icons.save),
+                      label: const Text('Guardar Cerda'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.pink,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 30,
+                          vertical: 12,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 20),
-              ],
-              
-              ElevatedButton.icon(
-                onPressed: _guardarCerda,
-                icon: const Icon(Icons.save),
-                label: const Text('Guardar Cerda'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.pink,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 30,
-                    vertical: 12,
-                  ),
-                ),
-              ),
                   ],
                 ),
               ),
