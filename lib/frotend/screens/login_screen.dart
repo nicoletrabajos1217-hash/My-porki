@@ -14,7 +14,7 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _userController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final AuthService _authService = AuthService();
+  // AuthService methods are estáticos, no se necesita instancia
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -41,7 +41,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
       await Hive.openBox('porki_users');
 
-      final userData = await _authService.loginUser(
+      final userData = await AuthService.loginUser(
         input: input,
         password: password,
       );

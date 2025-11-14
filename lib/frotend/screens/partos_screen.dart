@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
-import 'package:my_porki/frotend/screens/agregar_cerda_screen.dart';
+// import 'package:my_porki/frotend/screens/agregar_cerda_screen.dart'; // ya no usado tras remover FAB
 
 class PartosScreen extends StatefulWidget {
   const PartosScreen({super.key});
@@ -359,16 +359,7 @@ class _PartosScreenState extends State<PartosScreen> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const AgregarCerdaScreen()),
-          );
-        },
-        backgroundColor: Colors.pink,
-        child: const Icon(Icons.add, color: Colors.white),
-      ),
+      // Se removió el FloatingActionButton '+' por solicitud (se usa 'Agregar Cerda' desde el menú)
     );
   }
 }

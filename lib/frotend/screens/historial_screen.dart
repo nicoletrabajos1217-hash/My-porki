@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:hive/hive.dart';
+import 'cerda_detail_screen.dart';
 
 class HistorialScreen extends StatefulWidget {
   const HistorialScreen({super.key});
@@ -12,6 +13,8 @@ class _HistorialScreenState extends State<HistorialScreen> {
   late Box box;
   bool _isLoading = true;
   String _filtroSeleccionado = 'Todas';
+  List<Map<String, dynamic>> _cerdas = [];
+  final Map<dynamic, bool> _cerdasExpandidas = {};
 
   @override
   void initState() {
@@ -20,51 +23,387 @@ class _HistorialScreenState extends State<HistorialScreen> {
   }
 
   Future<void> _abrirHive() async {
-    box = await Hive.openBox('porki_data');
-    setState(() => _isLoading = false);
+    try {
+      box = await Hive.openBox('porki_data');
+      print('✅ Hive abierto correctamente');
+      _cargarCerdas();
+    } catch (e) {
+      print('❌ Error abriendo Hive: $e');
+      setState(() => _isLoading = false);
+    }
+  }
+
+  void _cargarCerdas() {
+    try {
+      final keys = box.keys.toList();
+      print('📦 Keys en Hive: $keys');
+      
+      final cerdasTemporales = <Map<String, dynamic>>[];
+      
+      for (var key in keys) {
+        final data = box.get(key);
+        print('🔍 Key: $key, Data: $data');
+        
+        if (data is Map && data['type'] == 'sow') {
+          cerdasTemporales.add({...data, 'hiveKey': key});
+        }
+      }
+      
+      _cerdas = cerdasTemporales;
+      print('🐷 Total cerdas cargadas: ${_cerdas.length}');
+      
+      setState(() => _isLoading = false);
+    } catch (e) {
+      print('❌ Error cargando cerdas: $e');
+      setState(() => _isLoading = false);
+    }
   }
 
   List<Map<String, dynamic>> _obtenerCerdasFiltradas() {
-    final keys = box.keys.toList();
-    final todasLasCerdas = keys.map((key) {
-      final cerda = box.get(key) as Map<String, dynamic>;
-      return {...cerda, 'hiveKey': key};
-    }).toList();
+    if (_filtroSeleccionado == 'Todas') return _cerdas;
 
-    if (_filtroSeleccionado == 'Todas') return todasLasCerdas;
-
-    return todasLasCerdas.where((cerda) {
+    return _cerdas.where((cerda) {
       switch (_filtroSeleccionado) {
         case 'Preñadas':
           return cerda['estado_reproductivo'] == 'Preñada';
-        case 'Lactantes':
-          return cerda['estado_reproductivo'] == 'Lactante';
         case 'No preñadas':
           return cerda['estado_reproductivo'] == 'No preñada';
         case 'Con partos':
-          return cerda['historial_partos'] != null && 
-                 (cerda['historial_partos'] as List).isNotEmpty;
+          return cerda['partos'] != null && (cerda['partos'] as List).isNotEmpty;
+        case 'Con vacunas':
+          return cerda['vacunas'] != null && (cerda['vacunas'] as List).isNotEmpty;
         default:
           return true;
       }
     }).toList();
   }
 
+  String _formatDate(String? dateString) {
+    if (dateString == null) return 'No especificada';
+    try {
+      final date = DateTime.parse(dateString);
+      return '${date.day}/${date.month}/${date.year}';
+    } catch (e) {
+      return 'Fecha inválida';
+    }
+  }
+
+  String _calcularDiasParto(String? fechaPartoString) {
+    if (fechaPartoString == null) return '';
+    try {
+      final fechaParto = DateTime.parse(fechaPartoString);
+      final ahora = DateTime.now();
+      final diferencia = fechaParto.difference(ahora).inDays;
+      
+      if (diferencia > 0) {
+        return ' ($diferencia días)';
+      } else if (diferencia == 0) {
+        return ' (¡Hoy!)';
+      } else {
+        return ' (Hace ${-diferencia} días)';
+      }
+    } catch (e) {
+      return '';
+    }
+  }
+
+  Widget _buildCerdaExpandible(Map<String, dynamic> cerda) {
+    final key = cerda['hiveKey'];
+    final estaExpandida = _cerdasExpandidas[key] ?? false;
+    
+    final partos = List<Map<String, dynamic>>.from(cerda['partos'] ?? []);
+    final vacunas = List<Map<String, dynamic>>.from(cerda['vacunas'] ?? []);
+    
+    return Card(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      elevation: 3,
+      child: ExpansionTile(
+        key: Key(key.toString()),
+        initiallyExpanded: estaExpandida,
+        onExpansionChanged: (expanded) {
+          setState(() {
+            _cerdasExpandidas[key] = expanded;
+          });
+        },
+        leading: Icon(
+          Icons.pets,
+          color: cerda['estado_reproductivo'] == 'Preñada' ? Colors.green : Colors.grey,
+        ),
+        title: Text(
+          cerda['nombre'] ?? 'Sin nombre',
+          style: const TextStyle(fontWeight: FontWeight.bold),
+        ),
+        subtitle: Text(
+          'ID: ${cerda['identificacion'] ?? 'No ID'} - ${cerda['estado_reproductivo'] ?? 'No especificado'}',
+        ),
+        trailing: Chip(
+          label: Text('${partos.length} partos'),
+          backgroundColor: Colors.pink[50],
+        ),
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                      // INFORMACIÓN BÁSICA
+                const Text(
+                  '📋 Información General',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Icon(Icons.badge, size: 16, color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Text('ID: ${cerda['identificacion'] ?? 'No ID'}'),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Row(
+                  children: [
+                    const Icon(Icons.female, size: 16, color: Colors.grey),
+                    const SizedBox(width: 8),
+                    Text('Estado: ${cerda['estado_reproductivo'] ?? 'No especificado'}'),
+                  ],
+                ),
+                
+                // ESTADO ACTUAL DE PREÑEZ
+                if (cerda['embarazada'] == true || (cerda['lechones_nacidos'] ?? 0) > 0) ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    '🤰 Estado de Preñez Actual',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  if (cerda['embarazada'] == true) 
+                    Row(
+                      children: [
+                        const Icon(Icons.pets, size: 16, color: Colors.blue),
+                        const SizedBox(width: 8),
+                        Text('Preña: ${cerda['lechones_en_vientre'] ?? 0} lechones esperados'),
+                      ],
+                    ),
+                  if ((cerda['lechones_nacidos'] ?? 0) > 0) 
+                    Row(
+                      children: [
+                        const Icon(Icons.child_friendly, size: 16, color: Colors.green),
+                        const SizedBox(width: 8),
+                        Text('Lechones Nacidos: ${cerda['lechones_nacidos']}'),
+                      ],
+                    ),
+                ],
+                const SizedBox(height: 8),
+                // Botón rápido para ver detalle completo y editar
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: () async {
+                          // Navegar a la pantalla de detalle de cerda
+                          await Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                              builder: (_) => CerdasScreen(
+                                openCerda: Map<String, dynamic>.from(cerda),
+                                openKey: key,
+                              ),
+                            ),
+                          );
+                          // Recargar para reflejar cambios
+                          await _abrirHive();
+                        },
+                        icon: const Icon(Icons.open_in_new),
+                        label: const Text('Ver detalle'),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.pink),
+                      ),
+                    ),
+                  ],
+                ),
+                
+                // FECHAS IMPORTANTES SI ESTÁ PREÑADA
+                if (cerda['estado_reproductivo'] == 'Preñada') ...[
+                  const SizedBox(height: 12),
+                  const Text(
+                    '🤰 Gestación Actual',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(height: 8),
+                  if (cerda['fecha_prenez_actual'] != null) 
+                    Row(
+                      children: [
+                        const Icon(Icons.calendar_today, size: 16, color: Colors.green),
+                        const SizedBox(width: 8),
+                        Text('Preñez: ${_formatDate(cerda['fecha_prenez_actual'])}'),
+                      ],
+                    ),
+                  if (cerda['fecha_parto_calculado'] != null) 
+                    Row(
+                      children: [
+                        const Icon(Icons.event_available, size: 16, color: Colors.green),
+                        const SizedBox(width: 8),
+                        Text('Parto estimado: ${_formatDate(cerda['fecha_parto_calculado'])}${_calcularDiasParto(cerda['fecha_parto_calculado'])}'),
+                      ],
+                    ),
+                ],
+                
+                // HISTORIAL DE PARTOS
+                const SizedBox(height: 16),
+                const Text(
+                  '🐷 Historial de Partos',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (partos.isEmpty)
+                  const Text('  No hay partos registrados', style: TextStyle(color: Colors.grey)),
+                if (partos.isNotEmpty)
+                  ...partos.asMap().entries.map((entry) {
+                    final index = entry.key;
+                    final parto = entry.value;
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.grey[50],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Parto ${index + 1}',
+                            style: const TextStyle(fontWeight: FontWeight.bold),
+                          ),
+                          if (parto['fecha_prez'] != null)
+                            Text('  • Preñez: ${_formatDate(parto['fecha_prez'])}'),
+                          if (parto['fecha_confirmacion'] != null)
+                            Text('  • Confirmación: ${_formatDate(parto['fecha_confirmacion'])}'),
+                          if (parto['fecha_parto'] != null)
+                            Text('  • Parto: ${_formatDate(parto['fecha_parto'])}'),
+                          if (parto['num_lechones'] != null)
+                            Text('  • Lechones: ${parto['num_lechones']}'),
+                          if (parto['observaciones'] != null && parto['observaciones'].isNotEmpty)
+                            Text('  • Observaciones: ${parto['observaciones']}'),
+                        ],
+                      ),
+                    );
+                  }),
+                
+                // HISTORIAL DE VACUNAS
+                const SizedBox(height: 16),
+                const Text(
+                  '💉 Historial de Vacunas',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (vacunas.isEmpty)
+                  const Text('  No hay vacunas registradas', style: TextStyle(color: Colors.grey)),
+                if (vacunas.isNotEmpty)
+                  ...vacunas.map((vacuna) {
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 4),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.blue[50],
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.vaccines, size: 16, color: Colors.blue),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              '${vacuna['nombre']} - ${_formatDate(vacuna['fecha'])}',
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                
+                // METADATOS
+                const SizedBox(height: 16),
+                const Text(
+                  '📊 Información del Sistema',
+                  style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Colors.grey),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Creada: ${_formatDate(cerda['createdAt'])}',
+                  style: const TextStyle(fontSize: 12, color: Colors.grey),
+                ),
+                if (cerda['updatedAt'] != null)
+                  Text(
+                    'Actualizada: ${_formatDate(cerda['updatedAt'])}',
+                    style: const TextStyle(fontSize: 12, color: Colors.grey),
+                  ),
+                  
+                // HISTORIAL DE CAMBIOS
+                const SizedBox(height: 16),
+                const Text(
+                  '📋 Historial de Cambios',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 8),
+                if (cerda['historial'] == null || (cerda['historial'] as List).isEmpty)
+                  const Text('  No hay cambios registrados', style: TextStyle(color: Colors.grey))
+                else
+                  ...(cerda['historial'] as List).map((cambio) {
+                    final cambios = cambio['cambios'] as Map<String, dynamic>? ?? {};
+                    return Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.amber[50],
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: Colors.amber[200] ?? Colors.amber),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _formatDate(cambio['fecha']),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          ...cambios.entries.map((c) => Text(
+                            '  • ${c.key}: ${c.value}',
+                            style: const TextStyle(fontSize: 12),
+                          )),
+                        ],
+                      ),
+                    );
+                  }),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildResumenEstadisticas() {
     final cerdas = _obtenerCerdasFiltradas();
-    final preadas = cerdas.where((c) => c['estado_reproductivo'] == 'Preñada').length;
-    final lactantes = cerdas.where((c) => c['estado_reproductivo'] == 'Lactante').length;
+    final prenadas = cerdas.where((c) => c['estado_reproductivo'] == 'Preñada').length;
     
-    // CORRECCIÓN: Manejo seguro de num_lechones
-    final totalLechones = cerdas.fold(0, (sum, cerda) {
-      final lechones = cerda['num_lechones'];
-      if (lechones is int) {
-        return sum + lechones;
-      } else if (lechones is String) {
-        return sum + (int.tryParse(lechones) ?? 0);
+    // Calcular total de lechones de todos los partos
+    int totalLechones = 0;
+    for (var cerda in cerdas) {
+      final partos = List<Map<String, dynamic>>.from(cerda['partos'] ?? []);
+      for (var parto in partos) {
+        totalLechones += (parto['num_lechones'] as int? ?? 0);
       }
-      return sum;
-    });
+    }
+
+    // Calcular total de vacunas
+    int totalVacunas = 0;
+    for (var cerda in cerdas) {
+      totalVacunas += (cerda['vacunas'] as List).length;
+    }
 
     return Card(
       child: Padding(
@@ -79,10 +418,10 @@ class _HistorialScreenState extends State<HistorialScreen> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildEstadisticaItem("Total", cerdas.length, Icons.pets),
-                _buildEstadisticaItem("Preñadas", preadas, Icons.pregnant_woman),
-                _buildEstadisticaItem("Lactantes", lactantes, Icons.child_care),
+                _buildEstadisticaItem("Cerdas", cerdas.length, Icons.pets),
+                _buildEstadisticaItem("Preñadas", prenadas, Icons.pregnant_woman),
                 _buildEstadisticaItem("Lechones", totalLechones, Icons.face),
+                _buildEstadisticaItem("Vacunas", totalVacunas, Icons.vaccines),
               ],
             ),
           ],
@@ -108,143 +447,36 @@ class _HistorialScreenState extends State<HistorialScreen> {
     );
   }
 
-  Widget _buildListaEventosRecientes() {
-    final cerdas = _obtenerCerdasFiltradas();
-    final eventos = <Map<String, dynamic>>[];
-
-    // Recolectar todos los eventos de todas las cerdas
-    for (final cerda in cerdas) {
-      final nombreCerda = cerda['nombre'] ?? 'Sin nombre';
-
-      // Evento de preñez
-      if (cerda['fecha_prez'] != null) {
-        eventos.add({
-          'tipo': 'preñez',
-          'titulo': 'Preñez confirmada',
-          'subtitulo': nombreCerda,
-          'fecha': cerda['fecha_prez'],
-          'color': Colors.green,
-          'icono': Icons.pregnant_woman,
-        });
-      }
-
-      // Evento de parto
-      if (cerda['fecha_real_parto'] != null) {
-        // CORRECCIÓN: Manejo seguro de num_lechones para el subtítulo
-        final lechones = cerda['num_lechones'];
-        final textoLechones = lechones != null ? ' - $lechones lechones' : '';
-        
-        eventos.add({
-          'tipo': 'parto',
-          'titulo': 'Parto registrado',
-          'subtitulo': '$nombreCerda$textoLechones',
-          'fecha': cerda['fecha_real_parto'],
-          'color': Colors.blue,
-          'icono': Icons.child_care,
-        });
-      }
-
-      // Eventos de vacunas
-      if (cerda['vacunas'] != null && cerda['vacunas'] is List) {
-        for (final vacuna in cerda['vacunas'] as List) {
-          if (vacuna is Map && vacuna['fecha'] != null) {
-            eventos.add({
-              'tipo': 'vacuna',
-              'titulo': 'Vacuna aplicada',
-              'subtitulo': '${vacuna['nombre']} - $nombreCerda',
-              'fecha': vacuna['fecha'],
-              'color': Colors.orange,
-              'icono': Icons.medical_services,
-            });
-          }
-        }
-      }
-    }
-
-    // Ordenar eventos por fecha (más recientes primero)
-    eventos.sort((a, b) {
-      try {
-        return b['fecha'].compareTo(a['fecha']);
-      } catch (e) {
-        return 0;
-      }
-    });
-
-    if (eventos.isEmpty) {
-      return const Card(
-        child: Padding(
-          padding: EdgeInsets.all(16),
-          child: Center(
-            child: Text(
-              "No hay eventos registrados",
-              style: TextStyle(color: Colors.grey),
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              "Eventos Recientes",
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            ...eventos.take(10).map((evento) => _buildItemEvento(evento)),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildItemEvento(Map<String, dynamic> evento) {
-    try {
-      final fecha = DateTime.parse(evento['fecha']);
-      final fechaFormateada = "${fecha.day}/${fecha.month}/${fecha.year}";
-
-      return ListTile(
-        leading: Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: evento['color'].withOpacity(0.2),
-            shape: BoxShape.circle,
-          ),
-          child: Icon(evento['icono'], color: evento['color'], size: 20),
-        ),
-        title: Text(evento['titulo'] ?? 'Evento'),
-        subtitle: Text(evento['subtitulo'] ?? ''),
-        trailing: Text(
-          fechaFormateada,
-          style: const TextStyle(color: Colors.grey, fontSize: 12),
-        ),
-        dense: true,
-      );
-    } catch (e) {
-      return const ListTile(
-        title: Text("Evento con fecha inválida"),
-        leading: Icon(Icons.error, color: Colors.red),
-      );
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            CircularProgressIndicator(color: Colors.pink),
+            SizedBox(height: 16),
+            Text('Cargando historial...', style: TextStyle(fontSize: 16)),
+          ],
+        ),
+      );
     }
+
+    final cerdasFiltradas = _obtenerCerdasFiltradas();
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text("Historial y Estadísticas"),
+        title: const Text("Historial Completo 🐷"),
+        backgroundColor: Colors.pink,
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => setState(() {}),
+            onPressed: () {
+              setState(() {
+                _isLoading = true;
+              });
+              _cargarCerdas();
+            },
           ),
         ],
       ),
@@ -256,39 +488,81 @@ class _HistorialScreenState extends State<HistorialScreen> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: ['Todas', 'Preñadas', 'Lactantes', 'No preñadas', 'Con partos']
-                    .map((filtro) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: FilterChip(
-                            label: Text(filtro),
-                            selected: _filtroSeleccionado == filtro,
-                            onSelected: (selected) {
-                              setState(() => _filtroSeleccionado = filtro);
-                            },
-                          ),
-                        ))
+                children: [
+                  'Todas', 
+                  'Preñadas', 
+                  'No preñadas', 
+                  'Con partos', 
+                  'Con vacunas'
+                ].map((filtro) => Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: FilterChip(
+                        label: Text(filtro),
+                        selected: _filtroSeleccionado == filtro,
+                        onSelected: (selected) {
+                          setState(() => _filtroSeleccionado = filtro);
+                        },
+                      ),
+                    ))
                     .toList(),
               ),
             ),
           ),
 
-          // Contenido
-          Expanded(
-            child: ListView(
+          // Resumen
+          _buildResumenEstadisticas(),
+
+          // Contador de resultados
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
               children: [
-                _buildResumenEstadisticas(),
-                _buildListaEventosRecientes(),
-                
-                const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text(
-                    "Más funcionalidades próximamente...",
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontStyle: FontStyle.italic),
-                  ),
+                Text(
+                  '${cerdasFiltradas.length} cerdas encontradas',
+                  style: const TextStyle(color: Colors.grey, fontSize: 14),
                 ),
+                const Spacer(),
+                if (_filtroSeleccionado != 'Todas')
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _filtroSeleccionado = 'Todas';
+                      });
+                    },
+                    child: const Text('Limpiar filtro'),
+                  ),
               ],
             ),
+          ),
+
+          // Lista de cerdas
+          Expanded(
+            child: cerdasFiltradas.isEmpty
+                ? const Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.pets, size: 64, color: Colors.grey),
+                        SizedBox(height: 16),
+                        Text(
+                          'No hay cerdas que coincidan\ncon el filtro seleccionado',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: Colors.grey, fontSize: 16),
+                        ),
+                      ],
+                    ),
+                  )
+                : RefreshIndicator(
+                    onRefresh: () async {
+                      await _abrirHive();
+                    },
+                    child: ListView.builder(
+                      itemCount: cerdasFiltradas.length,
+                      itemBuilder: (context, index) {
+                        return _buildCerdaExpandible(cerdasFiltradas[index]);
+                      },
+                    ),
+                  ),
           ),
         ],
       ),

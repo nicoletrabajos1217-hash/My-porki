@@ -14,7 +14,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
   
-  final AuthService _authService = AuthService();
   final _formKey = GlobalKey<FormState>();
 
   bool _isLoading = false;
@@ -35,7 +34,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
       final email = _emailController.text.trim();
       final password = _passwordController.text.trim();
 
-      await _authService.registerUser(
+      await AuthService.registerUser(
         username: username,
         email: email,
         password: password,

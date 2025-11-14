@@ -1,9 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:hive_flutter/hive_flutter.dart'; // 👈 importante: NO 'hive.dart'
+import 'package:my_porki/backend/services/sync_service.dart';
+import 'package:my_porki/backend/services/sow_service.dart';
 
 /// ✅ Pantalla principal: lista de cerdas + detalle individual
 class CerdasScreen extends StatefulWidget {
-  const CerdasScreen({super.key});
+  final Map<String, dynamic>? openCerda;
+  final int? openKey;
+
+  const CerdasScreen({super.key, this.openCerda, this.openKey});
 
   @override
   State<CerdasScreen> createState() => _CerdasScreenState();
@@ -12,6 +17,7 @@ class CerdasScreen extends StatefulWidget {
 class _CerdasScreenState extends State<CerdasScreen> {
   late Box box;
   bool _loading = true;
+  bool _soloActuales = false;
 
   @override
   void initState() {
@@ -22,16 +28,27 @@ class _CerdasScreenState extends State<CerdasScreen> {
   Future<void> _abrirHive() async {
     box = await Hive.openBox('porki_data');
     setState(() => _loading = false);
+
+    if (widget.openCerda != null) {
+      // Abrir detalle inmediato
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _abrirDetalle(cerda: widget.openCerda, key: widget.openKey);
+      });
+    }
   }
 
   void _abrirDetalle({Map<String, dynamic>? cerda, int? key}) async {
-    await Navigator.push(
+    final resultado = await Navigator.push(
       context,
       MaterialPageRoute(
         builder: (_) => _CerdaDetailScreen(cerdaExistente: cerda, hiveKey: key),
       ),
     );
-    setState(() {}); // refresca al volver
+    
+    // Refrescar lista si hubo cambios
+    if (resultado == true) {
+      setState(() {});
+    }
   }
 
   @override
@@ -39,21 +56,34 @@ class _CerdasScreenState extends State<CerdasScreen> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Mis Cerdas 🐷'),
+        actions: [
+          IconButton(
+            tooltip: _soloActuales ? 'Mostrar todas' : 'Mostrar solo actuales',
+            icon: Icon(_soloActuales ? Icons.filter_alt_off : Icons.filter_alt, color: Colors.white),
+            onPressed: () => setState(() => _soloActuales = !_soloActuales),
+          ),
+        ],
         backgroundColor: Colors.pink,
       ),
-      floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.pink,
-        onPressed: () => _abrirDetalle(),
-        child: const Icon(Icons.add),
-      ),
+      // Se removió el FloatingActionButton '+' en 'Mis Cerdas' por solicitud.
       body: _loading
           ? const Center(child: CircularProgressIndicator(color: Colors.pink))
           : ValueListenableBuilder(
               valueListenable: Hive.box('porki_data').listenable(),
               builder: (context, Box box, _) {
-                final cerdas = box.values
+                final all = box.values
                     .where((item) => item is Map && item['type'] == 'sow')
-                    .toList();
+                    .cast<Map>().toList();
+
+                List cerdas = all;
+                if (_soloActuales) {
+                  cerdas = all.where((item) {
+                    final cerda = Map<String, dynamic>.from(item);
+                    final estado = (cerda['estado_reproductivo'] ?? '').toString().toLowerCase();
+                    // Considerar no actuales si fueron retiradas/muertas/vendidas
+                    return !(estado.contains('retir') || estado.contains('muert') || estado.contains('vend'));
+                  }).toList();
+                }
 
                 if (cerdas.isEmpty) {
                   return const Center(
@@ -68,35 +98,111 @@ class _CerdasScreenState extends State<CerdasScreen> {
                   itemCount: cerdas.length,
                   itemBuilder: (context, index) {
                     final cerda = cerdas[index];
-                    final key = box.keyAt(index);
+                    // obtener hive key buscando la posición real
+                    final key = box.keys.firstWhere((k) => box.get(k) == cerda, orElse: () => null);
                     final nombre = cerda['nombre'] ?? 'Sin nombre';
                     final id = cerda['identificacion'] ?? 'Sin ID';
-                    final estado =
-                        cerda['estado_reproductivo'] ?? 'Desconocido';
+                    final embarazada = cerda['embarazada'] ?? false;
+                    final lechonesEnVientre = cerda['lechones_en_vientre'] ?? 0;
+                    final lechonesNacidos = cerda['lechones_nacidos'] ?? 0;
 
                     return Card(
                       margin: const EdgeInsets.symmetric(
                         horizontal: 12,
                         vertical: 6,
                       ),
+                      color: embarazada ? Colors.blue[50] : Colors.white,
                       child: ListTile(
-                        leading: const Text(
+                        leading: Text(
                           '🐷',
-                          style: TextStyle(fontSize: 28),
+                          style: const TextStyle(fontSize: 28),
                         ),
                         title: Text(
                           nombre,
                           style: const TextStyle(fontWeight: FontWeight.bold),
                         ),
-                        subtitle: Text('ID: $id\nEstado: $estado'),
-                        isThreeLine: true,
-                        trailing: const Icon(
-                          Icons.arrow_forward_ios_rounded,
-                          color: Colors.pink,
+                        subtitle: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('ID: $id'),
+                            if (embarazada) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '🐷 Preña • $lechonesEnVientre lechones',
+                                style: const TextStyle(
+                                  color: Colors.blue,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                            if (lechonesNacidos > 0) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                '🐽 $lechonesNacidos lechones nacidos',
+                                style: const TextStyle(
+                                  color: Colors.green,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
-                        onTap: () => _abrirDetalle(
-                          cerda: Map<String, dynamic>.from(cerda),
-                          key: key,
+                        isThreeLine: embarazada || lechonesNacidos > 0 ? true : false,
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: 'Eliminar cerda',
+                              icon: const Icon(Icons.delete, color: Colors.red),
+                              onPressed: () async {
+                                final confirmar = await showDialog<bool>(
+                                  context: context,
+                                  builder: (context) => AlertDialog(
+                                    title: const Text('Eliminar Cerda'),
+                                    content: Text('¿Deseas eliminar "$nombre"? Esta acción se eliminará localmente y se marcará para sincronizar la eliminación.'),
+                                    actions: [
+                                      TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+                                      TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Eliminar', style: TextStyle(color: Colors.red))),
+                                    ],
+                                  ),
+                                );
+
+                                if (confirmar == true) {
+                                  try {
+                                    // Eliminar localmente por clave Hive (si existe)
+                                    if (key != null) await box.delete(key);
+
+                                    // Si la cerda tiene sowId, usar SowService para manejar eliminación y sync
+                                    final sowId = cerda['sowId'];
+                                    if (sowId != null) {
+                                      await SowService.eliminarCerda(sowId.toString());
+                                    }
+
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Cerda "$nombre" eliminada')), 
+                                    );
+                                    setState(() {});
+                                  } catch (e) {
+                                    if (!mounted) return;
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      SnackBar(content: Text('Error al eliminar: $e')),
+                                    );
+                                  }
+                                }
+                              },
+                            ),
+                            IconButton(
+                              icon: const Icon(
+                                Icons.arrow_forward_ios_rounded,
+                                color: Colors.pink,
+                              ),
+                              onPressed: () => _abrirDetalle(
+                                cerda: Map<String, dynamic>.from(cerda),
+                                key: key,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     );
@@ -122,13 +228,20 @@ class _CerdaDetailScreen extends StatefulWidget {
 class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
   final _formKey = GlobalKey<FormState>();
   late Box box;
+  final SyncService _syncService = SyncService();
 
   final TextEditingController _nombreCtrl = TextEditingController();
   final TextEditingController _identificacionCtrl = TextEditingController();
+  final TextEditingController _lechonesCtrl = TextEditingController(text: '0');
   String? _estadoReproductivo;
+  bool _embarazada = false;
+  int _lechonesEnVientre = 0;
+  int _lechonesNacidos = 0;
+  bool _guardando = false;
 
   List<Map<String, dynamic>> _partos = [];
   List<Map<String, dynamic>> _vacunas = [];
+  List<Map<String, dynamic>> _historial = [];
 
   @override
   void initState() {
@@ -140,8 +253,13 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
       _nombreCtrl.text = cerda['nombre'] ?? '';
       _identificacionCtrl.text = cerda['identificacion'] ?? '';
       _estadoReproductivo = cerda['estado_reproductivo'];
+      _embarazada = cerda['embarazada'] ?? false;
+      _lechonesEnVientre = cerda['lechones_en_vientre'] ?? 0;
+      _lechonesNacidos = cerda['lechones_nacidos'] ?? 0;
+      _lechonesCtrl.text = _lechonesNacidos.toString();
       _partos = List<Map<String, dynamic>>.from(cerda['partos'] ?? []);
       _vacunas = List<Map<String, dynamic>>.from(cerda['vacunas'] ?? []);
+      _historial = List<Map<String, dynamic>>.from(cerda['historial'] ?? []);
     }
   }
 
@@ -151,36 +269,88 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
 
   Future<void> _guardarCerda() async {
     if (!_formKey.currentState!.validate()) return;
+    if (_guardando) return;
 
-    final nuevaCerda = {
-      'type': 'sow',
-      'nombre': _nombreCtrl.text.trim(),
-      'identificacion': _identificacionCtrl.text.trim(),
-      'estado_reproductivo': _estadoReproductivo ?? 'No preñada',
-      'partos': _partos,
-      'vacunas': _vacunas,
-    };
+    setState(() => _guardando = true);
 
-    if (widget.hiveKey != null) {
-      await box.put(widget.hiveKey, nuevaCerda);
-    } else {
-      final existingKey = box.keys.firstWhere((key) {
-        final data = box.get(key);
-        return data['nombre'] == nuevaCerda['nombre'] ||
-            data['identificacion'] == nuevaCerda['identificacion'];
-      }, orElse: () => null);
-      if (existingKey != null) {
-        await box.put(existingKey, nuevaCerda);
+    try {
+      // Detectar cambios y agregar al historial
+      Map<String, dynamic> cambios = {};
+      if (widget.cerdaExistente != null) {
+        if (widget.cerdaExistente!['embarazada'] != _embarazada) {
+          cambios['embarazada'] = 
+            _embarazada ? 'Preñada ahora' : 'Ya no preñada';
+        }
+        if (widget.cerdaExistente!['lechones_nacidos'] != _lechonesNacidos) {
+          cambios['lechones_nacidos'] = 
+            'De ${widget.cerdaExistente!['lechones_nacidos'] ?? 0} a $_lechonesNacidos';
+        }
+        if (widget.cerdaExistente!['lechones_en_vientre'] != _lechonesEnVientre) {
+          cambios['lechones_en_vientre'] = 
+            'De ${widget.cerdaExistente!['lechones_en_vientre'] ?? 0} a $_lechonesEnVientre';
+        }
+      }
+
+      // Agregar al historial si hay cambios
+      if (cambios.isNotEmpty) {
+        _historial.add({
+          'tipo': 'edicion_prenez',
+          'fecha': DateTime.now().toIso8601String(),
+          'cambios': cambios,
+        });
+      }
+
+      final nuevaCerda = {
+        'type': 'sow',
+        'nombre': _nombreCtrl.text.trim(),
+        'identificacion': _identificacionCtrl.text.trim(),
+        'estado_reproductivo': _estadoReproductivo ?? 'No preñada',
+        'embarazada': _embarazada,
+        'lechones_en_vientre': _lechonesEnVientre,
+        'lechones_nacidos': _lechonesNacidos,
+        'partos': _partos,
+        'vacunas': _vacunas,
+        'historial': _historial,
+        'updatedAt': DateTime.now().toIso8601String(),
+        'sowId': widget.cerdaExistente?['sowId'] ?? 'sow_${DateTime.now().millisecondsSinceEpoch}',
+      };
+
+      // Guardar en Hive
+      int? hiveKey;
+      if (widget.hiveKey != null) {
+        hiveKey = widget.hiveKey!;
+        await box.put(hiveKey, nuevaCerda);
+        print('💾 Cerda actualizada en Hive: ${_nombreCtrl.text}');
       } else {
-        await box.add(nuevaCerda);
+        hiveKey = await box.add(nuevaCerda);
+        print('💾 Cerda guardada en Hive: ${_nombreCtrl.text}');
+      }
+
+      // Sincronizar con Firebase
+      await _syncService.syncSowSafe(nuevaCerda, localKey: hiveKey);
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('✅ Cerda guardada correctamente 🐷'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      Navigator.pop(context, true); // Retorna true para indicar que hubo cambios
+    } catch (e) {
+      if (!mounted) return;
+      print('❌ Error guardando cerda: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('❌ Error al guardar: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _guardando = false);
       }
     }
-
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Cerda guardada correctamente 🐷')),
-    );
-    Navigator.pop(context);
   }
 
   void _agregarParto() {
@@ -199,6 +369,78 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
     setState(() {
       _vacunas.add({'nombre': '', 'fecha': null});
     });
+  }
+
+  Future<void> _agregarPartoRapido() async {
+    final TextEditingController _numCtrl = TextEditingController();
+    final result = await showDialog<int?>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Agregar parto rápido'),
+          content: TextField(
+            controller: _numCtrl,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Número de lechones'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+            ElevatedButton(
+              onPressed: () {
+                final num = int.tryParse(_numCtrl.text) ?? 0;
+                Navigator.pop(context, num);
+              },
+              child: const Text('Agregar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != null) {
+      setState(() {
+        _partos.add({
+          'fecha_prez': null,
+          'fecha_confirmacion': null,
+          'fecha_parto': DateTime.now().toIso8601String(),
+          'num_lechones': result,
+          'observaciones': 'Parto rápido registrado',
+        });
+      });
+      await _guardarCerda();
+    }
+  }
+
+  Future<void> _agregarVacunaRapida() async {
+    final TextEditingController _nameCtrl = TextEditingController();
+    final result = await showDialog<String?>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('Agregar vacuna rápida'),
+          content: TextField(
+            controller: _nameCtrl,
+            decoration: const InputDecoration(labelText: 'Nombre de la vacuna'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cancelar')),
+            ElevatedButton(
+              onPressed: () {
+                Navigator.pop(context, _nameCtrl.text.trim());
+              },
+              child: const Text('Agregar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (result != null && result.isNotEmpty) {
+      setState(() {
+        _vacunas.add({'nombre': result, 'fecha': DateTime.now().toIso8601String()});
+      });
+      await _guardarCerda();
+    }
   }
 
   Future<void> _seleccionarFecha(
@@ -239,13 +481,26 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
               : 'Detalles de Cerda 🐷',
         ),
         backgroundColor: Colors.pink,
+        elevation: 4,
       ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
+      backgroundColor: Colors.white,
+      body: _guardando
+          ? Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const CircularProgressIndicator(color: Colors.pink),
+                  const SizedBox(height: 16),
+                  const Text('Guardando cambios...'),
+                ],
+              ),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
               TextFormField(
                 controller: _nombreCtrl,
                 decoration: const InputDecoration(labelText: 'Nombre'),
@@ -273,6 +528,100 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
                 onChanged: (v) => setState(() => _estadoReproductivo = v),
               ),
               const SizedBox(height: 20),
+
+              // 🤰 NUEVA SECCIÓN: Estado de Preñez
+              Card(
+                color: Colors.blue[50],
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        '🤰 Estado de Preñez',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blue,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      
+                      // Check box para preñada
+                      Row(
+                        children: [
+                          Checkbox(
+                            value: _embarazada,
+                            activeColor: Colors.pink,
+                            onChanged: (value) {
+                              setState(() => _embarazada = value ?? false);
+                            },
+                          ),
+                          const Text('Cerda actualmente preñada'),
+                        ],
+                      ),
+                      
+                      if (_embarazada) ...[
+                        const SizedBox(height: 8),
+                        TextFormField(
+                          initialValue: _lechonesEnVientre.toString(),
+                          decoration: const InputDecoration(
+                            labelText: 'Lechones esperados',
+                            hintText: 'Cantidad estimada',
+                          ),
+                          keyboardType: TextInputType.number,
+                          onChanged: (v) => _lechonesEnVientre = int.tryParse(v) ?? 0,
+                        ),
+                      ],
+                      
+                      const SizedBox(height: 12),
+                      TextFormField(
+                        controller: _lechonesCtrl,
+                        decoration: const InputDecoration(
+                          labelText: 'Lechones nacidos totales',
+                          hintText: '0',
+                        ),
+                        keyboardType: TextInputType.number,
+                        onChanged: (v) => _lechonesNacidos = int.tryParse(v) ?? 0,
+                      ),
+                      
+                      if (widget.cerdaExistente != null) ...[
+                        const SizedBox(height: 12),
+                        ElevatedButton.icon(
+                          onPressed: _guardarCerda,
+                          icon: const Icon(Icons.save),
+                          label: const Text('Guardar Cambios 💾'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.blue,
+                            minimumSize: const Size.fromHeight(40),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+              const SizedBox(height: 20),
+
+              // Acciones rápidas: agregar parto o vacuna sin llenar todo el formulario
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  ElevatedButton.icon(
+                    onPressed: _agregarPartoRapido,
+                    icon: const Icon(Icons.add_circle_outline),
+                    label: const Text('Parto rápido'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange),
+                  ),
+                  ElevatedButton.icon(
+                    onPressed: _agregarVacunaRapida,
+                    icon: const Icon(Icons.medication_liquid),
+                    label: const Text('Vacuna rápida'),
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue),
+                  ),
+                ],
+              ),
+
 
               // 🐖 Partos
               Row(
@@ -429,6 +778,128 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
               }),
 
               const SizedBox(height: 30),
+              
+              // 📋 NUEVA SECCIÓN: Historial de Cambios
+              if (_historial.isNotEmpty || _embarazada || _lechonesNacidos > 0) ...[
+                Card(
+                  color: Colors.amber[50],
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.history, color: Colors.amber),
+                            const SizedBox(width: 8),
+                            const Text(
+                              'Historial de Cambios 📋',
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.amber,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        
+                        // Mostrar estado actual como primer item
+                        if (_embarazada || _lechonesNacidos > 0) ...[
+                          Container(
+                            margin: const EdgeInsets.only(bottom: 12),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: Colors.green[50],
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.green[200] ?? Colors.green),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text(
+                                  'Estado Actual 📊',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.bold,
+                                    color: Colors.green,
+                                  ),
+                                ),
+                                const SizedBox(height: 6),
+                                if (_embarazada)
+                                  Text(
+                                    '• Preñada: SÍ (${_lechonesEnVientre} lechones esperados)',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                                if (_lechonesNacidos > 0)
+                                  Text(
+                                    '• Lechones Nacidos: $_lechonesNacidos',
+                                    style: const TextStyle(fontSize: 12),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ],
+                        
+                        // Mostrar historial de cambios previos
+                        if (_historial.isNotEmpty) ...[
+                          const Divider(),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Cambios Previos',
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.grey,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          ..._historial.asMap().entries.map((entry) {
+                            final cambio = entry.value;
+                            final cambios = cambio['cambios'] as Map<String, dynamic>;
+                            
+                            return Container(
+                              margin: const EdgeInsets.only(bottom: 8),
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.amber[200] ?? Colors.amber),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    _formatearFecha(cambio['fecha']),
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.grey,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  ...cambios.entries.map((c) => Text(
+                                    '• ${c.key}: ${c.value}',
+                                    style: const TextStyle(fontSize: 12),
+                                  )),
+                                ],
+                              ),
+                            );
+                          }),
+                        ] else if (_embarazada || _lechonesNacidos > 0) ...[
+                          const SizedBox(height: 4),
+                          const Text(
+                            'Sin cambios previos registrados',
+                            style: TextStyle(fontSize: 12, color: Colors.grey, fontStyle: FontStyle.italic),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+              ],
+              
               ElevatedButton.icon(
                 onPressed: _guardarCerda,
                 icon: const Icon(Icons.save),
@@ -441,10 +912,10 @@ class _CerdaDetailScreenState extends State<_CerdaDetailScreen> {
                   ),
                 ),
               ),
-            ],
-          ),
-        ),
-      ),
+                  ],
+                ),
+              ),
+            ),
     );
   }
 }
