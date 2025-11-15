@@ -184,11 +184,11 @@ class _HistorialScreenState extends State<HistorialScreen> {
                   ),
                   const SizedBox(height: 8),
                   if (cerda['embarazada'] == true)
-                    Row(
+                    const Row(
                       children: [
-                        const Icon(Icons.pets, size: 16, color: Colors.blue),
-                        const SizedBox(width: 8),
-                        const Text('Preña'),
+                        Icon(Icons.pets, size: 16, color: Colors.blue),
+                        SizedBox(width: 8),
+                        Text('Preña'),
                       ],
                     ),
                   if ((cerda['lechones_nacidos'] ?? 0) > 0)

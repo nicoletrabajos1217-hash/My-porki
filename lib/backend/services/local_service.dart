@@ -61,7 +61,9 @@ class LocalService {
   }
 
   /// OBTENER TODOS LOS DATOS DE UNA BOX
-  static Future<List<dynamic>> getAllData({String boxName = 'porki_data'}) async {
+  static Future<List<dynamic>> getAllData({
+    String boxName = 'porki_data',
+  }) async {
     try {
       final box = await Hive.openBox(boxName);
       return box.values.toList();
@@ -143,7 +145,7 @@ class LocalService {
     try {
       final connectivity = Connectivity();
       final result = await connectivity.checkConnectivity();
-      
+
       return result != ConnectivityResult.none;
     } catch (e) {
       print('❌ Error verificando conexión: $e');
@@ -167,7 +169,7 @@ class LocalService {
     try {
       final box = await Hive.openBox(_syncBox);
       final pendingKey = 'pending_${DateTime.now().millisecondsSinceEpoch}';
-      
+
       await box.put(pendingKey, {
         'action': action,
         'entityType': entityType,
@@ -175,7 +177,7 @@ class LocalService {
         'timestamp': DateTime.now().toIso8601String(),
         'pendingKey': pendingKey,
       });
-      
+
       print('✅ Sync pendiente guardado: $entityType - $action');
     } catch (e) {
       print('❌ Error guardando sync pendiente: $e');
@@ -187,17 +189,19 @@ class LocalService {
     try {
       final box = await Hive.openBox(_syncBox);
       final allData = box.values.toList();
-      
-      final pendingSyncs = allData.where((data) => 
-        data is Map && 
-        data['pendingKey'] != null &&
-        data['pendingKey'].toString().startsWith('pending_')
-      ).cast<Map<String, dynamic>>().toList();
+
+      final pendingSyncs = allData
+          .where(
+            (data) =>
+                data is Map &&
+                data['pendingKey'] != null &&
+                data['pendingKey'].toString().startsWith('pending_'),
+          )
+          .cast<Map<String, dynamic>>()
+          .toList();
 
       // Ordenar por timestamp (más antiguos primero)
-      pendingSyncs.sort((a, b) => 
-        a['timestamp'].compareTo(b['timestamp'])
-      );
+      pendingSyncs.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
 
       return pendingSyncs;
     } catch (e) {
@@ -223,11 +227,11 @@ class LocalService {
       final mainBox = await Hive.openBox(_mainBox);
       final usersBox = await Hive.openBox(_usersBox);
       final syncBox = await Hive.openBox(_syncBox);
-      
+
       await mainBox.clear();
       await usersBox.clear();
       await syncBox.clear();
-      
+
       print('✅ Todos los datos locales eliminados');
     } catch (e) {
       print('❌ Error eliminando datos locales: $e');
@@ -243,11 +247,13 @@ class LocalService {
       final syncBox = await Hive.openBox(_syncBox);
 
       return {
-        'total_cerdas': mainBox.values.where((data) => 
-          data is Map && data['type'] == 'sow').length,
+        'total_cerdas': mainBox.values
+            .where((data) => data is Map && data['type'] == 'sow')
+            .length,
         'total_usuarios': usersBox.length,
-        'sync_pendientes': syncBox.values.where((data) => 
-          data is Map && data['pendingKey'] != null).length,
+        'sync_pendientes': syncBox.values
+            .where((data) => data is Map && data['pendingKey'] != null)
+            .length,
         'ultima_sincronizacion': await getSyncStatus('sows'),
       };
     } catch (e) {

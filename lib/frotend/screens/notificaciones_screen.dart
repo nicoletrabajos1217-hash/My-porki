@@ -22,19 +22,20 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
     try {
       final box = await Hive.openBox('porki_data');
       final allData = box.values.toList();
-      final cerdas = allData.where((data) => 
-        data is Map && data['type'] == 'sow'
-      ).cast<Map<String, dynamic>>().toList();
-      
+      final cerdas = allData
+          .where((data) => data is Map && data['type'] == 'sow')
+          .cast<Map<String, dynamic>>()
+          .toList();
+
       final partosProximos = <Map<String, dynamic>>[];
       final ahora = DateTime.now();
-      
+
       for (var cerda in cerdas) {
         if (cerda['fecha_parto_calculado'] != null) {
           try {
             final fechaParto = DateTime.parse(cerda['fecha_parto_calculado']);
             final diasRestantes = fechaParto.difference(ahora).inDays;
-            
+
             if (diasRestantes >= 0 && diasRestantes <= 7) {
               partosProximos.add({
                 'cerda': cerda,
@@ -50,7 +51,7 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
           }
         }
       }
-      
+
       // Ordenar por prioridad y fecha
       partosProximos.sort((a, b) {
         if (a['prioridad'] != b['prioridad']) {
@@ -58,7 +59,7 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
         }
         return a['dias_restantes'].compareTo(b['dias_restantes']);
       });
-      
+
       setState(() {
         _notificaciones = partosProximos;
         _isLoading = false;
@@ -70,7 +71,7 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
       });
     }
   }
-  
+
   String _generarMensajeParto(String? nombreCerda, int diasRestantes) {
     final nombre = nombreCerda ?? 'Cerda sin nombre';
     if (diasRestantes == 0) {
@@ -107,89 +108,101 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
           : _notificaciones.isEmpty
-              ? const Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(Icons.notifications_off, size: 64, color: Colors.grey),
-                      SizedBox(height: 16),
-                      Text(
-                        'No hay recordatorios pendientes',
-                        style: TextStyle(fontSize: 16, color: Colors.grey),
-                      ),
-                      SizedBox(height: 8),
-                      Text(
-                        '¡Todo bajo control! 🎉',
-                        style: TextStyle(fontSize: 14, color: Colors.grey),
-                      ),
-                    ],
+          ? const Center(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.notifications_off, size: 64, color: Colors.grey),
+                  SizedBox(height: 16),
+                  Text(
+                    'No hay recordatorios pendientes',
+                    style: TextStyle(fontSize: 16, color: Colors.grey),
                   ),
-                )
-              : ListView.builder(
-                  itemCount: _notificaciones.length,
-                  itemBuilder: (context, index) {
-                    final notif = _notificaciones[index];
-                    final cerda = notif['cerda'];
-                    final diasRestantes = notif['dias_restantes'];
-                    final prioridad = notif['prioridad'];
-                    
-                    return Card(
-                      margin: const EdgeInsets.all(8),
-                      elevation: 2,
-                      color: prioridad == 'alta' ? Colors.red[50] : Colors.orange[50],
-                      child: ListTile(
-                        leading: Icon(
-                          Icons.pregnant_woman,
-                          color: prioridad == 'alta' ? Colors.red : Colors.orange,
-                          size: 30,
-                        ),
-                        title: Text(
-                          cerda['nombre'] ?? 'Cerda sin nombre',
-                          style: TextStyle(
-                            fontWeight: FontWeight.bold,
-                            color: prioridad == 'alta' ? Colors.red : Colors.orange,
+                  SizedBox(height: 8),
+                  Text(
+                    '¡Todo bajo control! 🎉',
+                    style: TextStyle(fontSize: 14, color: Colors.grey),
+                  ),
+                ],
+              ),
+            )
+          : ListView.builder(
+              itemCount: _notificaciones.length,
+              itemBuilder: (context, index) {
+                final notif = _notificaciones[index];
+                final cerda = notif['cerda'];
+                final diasRestantes = notif['dias_restantes'];
+                final prioridad = notif['prioridad'];
+
+                return Card(
+                  margin: const EdgeInsets.all(8),
+                  elevation: 2,
+                  color: prioridad == 'alta'
+                      ? Colors.red[50]
+                      : Colors.orange[50],
+                  child: ListTile(
+                    leading: Icon(
+                      Icons.pregnant_woman,
+                      color: prioridad == 'alta' ? Colors.red : Colors.orange,
+                      size: 30,
+                    ),
+                    title: Text(
+                      cerda['nombre'] ?? 'Cerda sin nombre',
+                      style: TextStyle(
+                        fontWeight: FontWeight.bold,
+                        color: prioridad == 'alta' ? Colors.red : Colors.orange,
+                      ),
+                    ),
+                    subtitle: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(notif['mensaje']),
+                        const SizedBox(height: 4),
+                        Text(
+                          'Parto estimado: ${_formatDate(notif['fecha_parto'])}',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey,
                           ),
                         ),
-                        subtitle: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(notif['mensaje']),
-                            const SizedBox(height: 4),
-                            Text(
-                              'Parto estimado: ${_formatDate(notif['fecha_parto'])}',
-                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        if (cerda['identificacion'] != null)
+                          Text(
+                            'ID: ${cerda['identificacion']}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.grey,
                             ),
-                            if (cerda['identificacion'] != null)
-                              Text(
-                                'ID: ${cerda['identificacion']}',
-                                style: const TextStyle(fontSize: 12, color: Colors.grey),
-                              ),
-                          ],
+                          ),
+                      ],
+                    ),
+                    trailing: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '$diasRestantes',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: prioridad == 'alta'
+                                ? Colors.red
+                                : Colors.orange,
+                          ),
                         ),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Text(
-                              '$diasRestantes',
-                              style: TextStyle(
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
-                                color: prioridad == 'alta' ? Colors.red : Colors.orange,
-                              ),
-                            ),
-                            Text(
-                              'días',
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: prioridad == 'alta' ? Colors.red : Colors.orange,
-                              ),
-                            ),
-                          ],
+                        Text(
+                          'días',
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: prioridad == 'alta'
+                                ? Colors.red
+                                : Colors.orange,
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
     );
   }
 }

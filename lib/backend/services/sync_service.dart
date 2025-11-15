@@ -1,260 +1,324 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:hive/hive.dart';
-import 'dart:async';
+import 'package:connectivity_plus/connectivity_plus.dart';
+import 'local_service.dart';
 
 class SyncService {
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
-  final int _maxRetries = 3;
-  final Map<String, int> _retryCount = {};
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
-  // ✅ SINCRONIZACIÓN SEGURA PARA UNA CERDA
-  Future<bool> syncSowSafe(Map<String, dynamic> sowData, {int? localKey}) async {
+  /// ✅ VERIFICAR CONEXIÓN
+  Future<bool> checkConnection() async {
     try {
-      String sowId = sowData['sowId'] ?? 'sow_${DateTime.now().millisecondsSinceEpoch}';
-      
-      print('🔄 Iniciando sincronización segura para: ${sowData['nombre']}');
-      
-      // 1. GUARDAR COMO PENDIENTE PRIMERO
-      await _saveAsPending(sowData, localKey);
-      
-      // 2. INTENTAR SINCRONIZACIÓN INMEDIATA
-      bool syncSuccess = await _syncWithRetry(sowData, sowId, localKey);
-      
-      if (syncSuccess) {
-        print('✅ Sincronización exitosa: ${sowData['nombre']}');
-        await _removeFromPending(sowId);
-        return true;
-      } else {
-        print('⏳ Sincronización fallida, guardada para reintentar: ${sowData['nombre']}');
+      final connectivityResult = await Connectivity().checkConnectivity();
+      if (connectivityResult == ConnectivityResult.none) {
         return false;
       }
+
+      // Verificar conexión a Firestore
+      await _firestore.collection('sows').limit(1).get();
+      return true;
     } catch (e) {
-      print('❌ Error en syncSowSafe: $e');
-      await _saveAsPending(sowData, localKey);
+      print('❌ Sin conexión: $e');
       return false;
     }
   }
 
-  // ✅ SINCRONIZACIÓN CON REINTENTOS
-  Future<bool> _syncWithRetry(Map<String, dynamic> sowData, String sowId, int? localKey) async {
-    for (int attempt = 1; attempt <= _maxRetries; attempt++) {
-      try {
-        print('🔄 Intento $attempt de sincronización para: ${sowData['nombre']}');
-        
-        // Preparar datos para Firebase
-        final firebaseData = Map<String, dynamic>.from(sowData);
-        firebaseData['synced'] = true;
-        firebaseData['lastSync'] = FieldValue.serverTimestamp();
-        firebaseData['syncAttempts'] = attempt;
-        if (localKey != null) {
-          firebaseData['localKey'] = localKey.toString();
-        }
-
-        // Guardar en Firebase
-        await _firestore.collection('cerdas').doc(sowId).set(firebaseData, SetOptions(merge: true));
-        
-        // VERIFICAR que realmente se guardó
-        bool verified = await _verifySync(sowId);
-        if (verified) {
-          // Actualizar local como sincronizado
-          await _updateLocalSyncStatus(localKey, sowData, true);
-          return true;
-        }
-      } catch (e) {
-        print('❌ Intento $attempt fallido: $e');
-        await Future.delayed(Duration(seconds: attempt * 2)); // Backoff exponencial
-      }
-    }
-    return false;
-  }
-
-  // ✅ VERIFICAR QUE REALMENTE SE GUARDÓ EN FIREBASE
-  Future<bool> _verifySync(String sowId) async {
-    try {
-      DocumentSnapshot doc = await _firestore.collection('cerdas').doc(sowId).get();
-      return doc.exists;
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // ✅ GUARDAR COMO PENDIENTE
-  Future<void> _saveAsPending(Map<String, dynamic> sowData, int? localKey) async {
-    try {
-      final box = await Hive.openBox('porki_sync');
-      String sowId = sowData['sowId'] ?? 'sow_${DateTime.now().millisecondsSinceEpoch}';
-      
-      final pendingData = {
-        'action': 'create',
-        'entityType': 'sow',
-        'data': sowData,
-        'sowId': sowId,
-        'localKey': localKey,
-        'timestamp': DateTime.now().toIso8601String(),
-        'lastAttempt': DateTime.now().toIso8601String(),
-        'attempts': 0,
-      };
-      
-      await box.put(sowId, pendingData);
-      print('📋 Guardado como pendiente: ${sowData['nombre']}');
-    } catch (e) {
-      print('❌ Error guardando como pendiente: $e');
-    }
-  }
-
-  // ✅ ELIMINAR DE PENDIENTES
-  Future<void> _removeFromPending(String sowId) async {
-    try {
-      final box = await Hive.openBox('porki_sync');
-      await box.delete(sowId);
-      _retryCount.remove(sowId);
-      print('✅ Eliminado de pendientes: $sowId');
-    } catch (e) {
-      print('❌ Error eliminando de pendientes: $e');
-    }
-  }
-
-  // ✅ ACTUALIZAR ESTADO LOCAL
-  Future<void> _updateLocalSyncStatus(int? localKey, Map<String, dynamic> sowData, bool synced) async {
-    if (localKey != null) {
-      try {
-        final box = await Hive.openBox('porki_data');
-        sowData['synced'] = synced;
-        sowData['lastSyncAttempt'] = DateTime.now().toIso8601String();
-        await box.put(localKey, sowData);
-      } catch (e) {
-        print('❌ Error actualizando estado local: $e');
-      }
-    }
-  }
-
-  // ✅ DESCARGAR TODAS LAS CERDAS DE FIREBASE A HIVE (se ejecuta al iniciar sesión)
-  Future<void> downloadAllSowsFromFirebase() async {
-    try {
-      print('📥 Descargando cerdas desde Firebase...');
-      final box = await Hive.openBox('porki_data');
-
-      // Obtener todas las cerdas del usuario desde Firebase
-      final snapshot = await _firestore
-          .collection('cerdas')
-          .get();
-
-      print('📦 Cerdas encontradas en Firebase: ${snapshot.docs.length}');
-
-      // Guardar/actualizar cada cerda en Hive
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final sowId = doc.id;
-
-        // Agregar el ID de Firebase para sincronización futura
-        final sowData = {
-          ...data,
-          'sowId': sowId,
-          'type': 'sow',
-          'synced': true,
-          'lastSync': DateTime.now().toIso8601String(),
-        };
-
-        // Buscar si ya existe localmente (por sowId)
-        bool encontrado = false;
-        for (var key in box.keys) {
-          final item = box.get(key);
-          if (item is Map && item['sowId'] == sowId) {
-            // Actualizar el existente
-            await box.put(key, sowData);
-            encontrado = true;
-            print('🔄 Cerda actualizada: ${sowData['nombre']} (${sowData['identificacion']})');
-            break;
-          }
-        }
-
-        // Si no existe, agregar como nuevo
-        if (!encontrado) {
-          await box.add(sowData);
-          print('✨ Nueva cerda agregada: ${sowData['nombre']} (${sowData['identificacion']})');
-        }
-      }
-
-      print('✅ Descarga completada: ${snapshot.docs.length} cerdas sincronizadas');
-    } catch (e) {
-      print('❌ Error descargando cerdas: $e');
-    }
-  }
-
-  // ✅ SINCRONIZAR TODOS LOS PENDIENTES (se ejecuta cada 1 minuto)
+  /// ✅ SINCRONIZAR TODOS LOS PENDIENTES
   Future<void> syncAllPending() async {
     try {
-      final box = await Hive.openBox('porki_sync');
-      final pendingKeys = box.keys.toList();
-      
-      print('🔄 Sincronizando ${pendingKeys.length} elementos pendientes...');
-      
-      for (var key in pendingKeys) {
+      final hasConnection = await checkConnection();
+      if (!hasConnection) {
+        print('📴 Sin conexión - No se puede sincronizar');
+        return;
+      }
+
+      final pendingSyncs = await LocalService.getPendingSync();
+      print('🔄 Sincronizando ${pendingSyncs.length} elementos pendientes...');
+
+      for (final sync in pendingSyncs) {
         try {
-          final pendingData = box.get(key);
-          if (pendingData != null && pendingData is Map) {
-            final data = Map<String, dynamic>.from(pendingData);
-            
-            // Verificar intentos máximos
-            int attempts = (data['attempts'] ?? 0) + 1;
-            if (attempts > _maxRetries) {
-              print('🚫 Máximos intentos alcanzados para: $key');
-              await box.delete(key);
-              continue;
-            }
-            
-            // Actualizar contador de intentos
-            data['attempts'] = attempts;
-            data['lastAttempt'] = DateTime.now().toIso8601String();
-            await box.put(key, data);
-            
-            // Intentar sincronizar
-            final sowData = Map<String, dynamic>.from(data['data']);
-            bool success = await _syncWithRetry(sowData, data['sowId'], data['localKey']);
-            
-            if (success) {
-              await box.delete(key);
+          final data = sync['data'];
+          final action = sync['action'];
+          final entityType = sync['entityType'];
+          final pendingKey = sync['pendingKey'];
+
+          if (entityType == 'sow') {
+            final sowId = data['id'];
+
+            switch (action) {
+              case 'create':
+              case 'update':
+                await _firestore
+                    .collection('sows')
+                    .doc(sowId)
+                    .set(data, SetOptions(merge: true));
+                print('✅ Sync completado: $action - $sowId');
+                break;
+              case 'delete':
+                await _firestore.collection('sows').doc(sowId).delete();
+                print('✅ Eliminación sincronizada: $sowId');
+                break;
             }
           }
+
+          // Eliminar sync pendiente después de éxito
+          await LocalService.removePendingSync(pendingKey);
         } catch (e) {
-          print('❌ Error sincronizando pendiente $key: $e');
+          print('❌ Error en sync pendiente: $e');
+          // No eliminamos para reintentar luego
         }
       }
-      
+
       print('✅ Sincronización de pendientes completada');
     } catch (e) {
       print('❌ Error en syncAllPending: $e');
     }
   }
 
-  // ✅ VERIFICAR CONEXIÓN
-  Future<bool> checkConnection() async {
+  /// ✅ DESCARGAR TODAS LAS CERDAS DE FIREBASE A HIVE
+  Future<void> downloadAllSowsFromFirebase() async {
     try {
-      await _firestore.collection('cerdas').limit(1).get();
-      return true;
+      final hasConnection = await checkConnection();
+      if (!hasConnection) {
+        throw Exception('No hay conexión a internet');
+      }
+
+      print('📥 Descargando cerdas desde Firebase...');
+      final snapshot = await _firestore.collection('sows').get();
+
+      print('📦 Cerdas encontradas en Firebase: ${snapshot.docs.length}');
+
+      // Guardar/actualizar cada cerda en Hive
+      for (var doc in snapshot.docs) {
+        try {
+          final data = doc.data();
+          final sowId = doc.id;
+
+          // ✅ CORREGIDO: Estructura consistente con SowService
+          final sowData = {
+            ...data,
+            'id': sowId, // ✅ Usar 'id' en lugar de 'sowId'
+            'type': 'sow',
+            'synced': true,
+            'lastSync': DateTime.now().toIso8601String(),
+          };
+
+          // ✅ CORREGIDO: Guardar usando el ID como key
+          await LocalService.saveData(key: sowId, value: sowData);
+
+          print('    ✅ Cerda sincronizada: ${sowData['nombre']} ($sowId)');
+        } catch (e) {
+          print('    ❌ Error procesando cerda: $e');
+        }
+      }
+
+      print(
+        '✅ Descarga completada: ${snapshot.docs.length} cerdas sincronizadas',
+      );
     } catch (e) {
-      return false;
+      print('❌ Error descargando cerdas: $e');
+      rethrow;
     }
   }
 
-  // ✅ OBTENER ESTADO DE SINCRONIZACIÓN
+  /// ✅ OBTENER ESTADO DE SINCRONIZACIÓN
   Future<Map<String, dynamic>> getSyncStatus() async {
     try {
-      final box = await Hive.openBox('porki_sync');
-      final pendingCount = box.keys.length;
-      
-      final dataBox = await Hive.openBox('porki_data');
-      final totalCerdas = dataBox.values.length;
-      final syncedCerdas = dataBox.values.where((data) => data is Map && data['synced'] == true).length;
-      
+      final pendingSyncs = await LocalService.getPendingSync();
+
+      // Obtener datos de cerdas
+      final allData = await LocalService.getAllData();
+      final cerdas = allData
+          .where((data) => data is Map && data['type'] == 'sow')
+          .cast<Map<String, dynamic>>()
+          .toList();
+
+      final totalCerdas = cerdas.length;
+      final syncedCerdas = cerdas
+          .where((cerda) => cerda['synced'] == true)
+          .length;
+      final syncPercentage = totalCerdas > 0
+          ? ((syncedCerdas / totalCerdas) * 100).round()
+          : 100;
+
       return {
-        'pendingSync': pendingCount,
         'totalCerdas': totalCerdas,
         'syncedCerdas': syncedCerdas,
-        'syncPercentage': totalCerdas > 0 ? (syncedCerdas / totalCerdas * 100).round() : 100,
+        'pendingSync': pendingSyncs.length,
+        'syncPercentage': syncPercentage,
+        'lastUpdate': DateTime.now().toIso8601String(),
       };
     } catch (e) {
-      return {'error': e.toString()};
+      print('❌ Error obteniendo estado de sync: $e');
+      return {
+        'totalCerdas': 0,
+        'syncedCerdas': 0,
+        'pendingSync': 0,
+        'syncPercentage': 0,
+        'lastUpdate': DateTime.now().toIso8601String(),
+        'error': e.toString(),
+      };
+    }
+  }
+
+  /// ✅ SINCRONIZACIÓN MANUAL COMPLETA
+  Future<void> fullSync() async {
+    try {
+      print('🔄 INICIANDO SINCRONIZACIÓN COMPLETA...');
+
+      // 1. Verificar conexión
+      final hasConnection = await checkConnection();
+      if (!hasConnection) {
+        throw Exception('No hay conexión a internet');
+      }
+
+      // 2. Sincronizar cambios pendientes locales → Firebase
+      await syncAllPending();
+
+      // 3. Descargar cambios de Firebase → Local
+      await downloadAllSowsFromFirebase();
+
+      // 4. Obtener estado final
+      final syncStatus = await getSyncStatus();
+
+      print('''
+✅ SINCRONIZACIÓN COMPLETADA
+   📊 Total cerdas: ${syncStatus['totalCerdas']}
+   ✅ Sincronizadas: ${syncStatus['syncedCerdas']} 
+   📋 Pendientes: ${syncStatus['pendingSync']}
+   📈 Porcentaje: ${syncStatus['syncPercentage']}%
+      ''');
+    } catch (e) {
+      print('❌ Error en sincronización completa: $e');
+      rethrow;
+    }
+  }
+
+  /// ✅ SINCRONIZACIÓN RÁPIDA (solo pendientes)
+  Future<void> quickSync() async {
+    try {
+      print('⚡ INICIANDO SINCRONIZACIÓN RÁPIDA...');
+
+      final hasConnection = await checkConnection();
+      if (!hasConnection) {
+        throw Exception('No hay conexión a internet');
+      }
+
+      await syncAllPending();
+
+      final syncStatus = await getSyncStatus();
+      print(
+        '✅ Sincronización rápida completada - Pendientes: ${syncStatus['pendingSync']}',
+      );
+    } catch (e) {
+      print('❌ Error en sincronización rápida: $e');
+      rethrow;
+    }
+  }
+
+  /// ✅ LIMPIAR PENDIENTES ANTIGUOS (más de 7 días)
+  Future<void> cleanOldPendingSyncs() async {
+    try {
+      final pendingSyncs = await LocalService.getPendingSync();
+      final ahora = DateTime.now();
+      int cleanedCount = 0;
+
+      for (final sync in pendingSyncs) {
+        try {
+          final timestamp = sync['timestamp'];
+          if (timestamp != null) {
+            final syncDate = DateTime.parse(timestamp);
+            final diferencia = ahora.difference(syncDate).inDays;
+
+            if (diferencia > 7) {
+              await LocalService.removePendingSync(sync['pendingKey']);
+              cleanedCount++;
+              print('🧹 Pendiente limpiado (antiguo): ${sync['pendingKey']}');
+            }
+          }
+        } catch (e) {
+          print('❌ Error limpiando pendiente: $e');
+        }
+      }
+
+      if (cleanedCount > 0) {
+        print('✅ $cleanedCount pendientes antiguos limpiados');
+      }
+    } catch (e) {
+      print('❌ Error limpiando pendientes antiguos: $e');
+    }
+  }
+
+  /// ✅ VERIFICAR INTEGRIDAD DE DATOS
+  Future<Map<String, dynamic>> checkDataIntegrity() async {
+    try {
+      final allData = await LocalService.getAllData();
+      final cerdas = allData
+          .where((data) => data is Map && data['type'] == 'sow')
+          .cast<Map<String, dynamic>>()
+          .toList();
+
+      int conErrores = 0;
+      final errores = <String>[];
+
+      for (var cerda in cerdas) {
+        // Verificar campos requeridos
+        if (cerda['id'] == null) {
+          conErrores++;
+          errores.add('Cerda sin ID: ${cerda['nombre']}');
+        }
+        if (cerda['nombre'] == null || cerda['nombre'].toString().isEmpty) {
+          conErrores++;
+          errores.add('Cerda sin nombre: ${cerda['id']}');
+        }
+      }
+
+      return {
+        'totalCerdas': cerdas.length,
+        'conErrores': conErrores,
+        'errores': errores,
+        'integro': conErrores == 0,
+      };
+    } catch (e) {
+      return {
+        'totalCerdas': 0,
+        'conErrores': 0,
+        'errores': ['Error verificando integridad: $e'],
+        'integro': false,
+      };
+    }
+  }
+
+  /// ✅ OBTENER ESTADÍSTICAS DETALLADAS
+  Future<Map<String, dynamic>> getDetailedStats() async {
+    try {
+      final syncStatus = await getSyncStatus();
+      final dataIntegrity = await checkDataIntegrity();
+      final pendingSyncs = await LocalService.getPendingSync();
+
+      // Contar por acción pendiente
+      int pendientesCrear = pendingSyncs
+          .where((s) => s['action'] == 'create')
+          .length;
+      int pendientesActualizar = pendingSyncs
+          .where((s) => s['action'] == 'update')
+          .length;
+      int pendientesEliminar = pendingSyncs
+          .where((s) => s['action'] == 'delete')
+          .length;
+
+      return {
+        ...syncStatus,
+        'dataIntegrity': dataIntegrity,
+        'pendientesCrear': pendientesCrear,
+        'pendientesActualizar': pendientesActualizar,
+        'pendientesEliminar': pendientesEliminar,
+        'timestamp': DateTime.now().toIso8601String(),
+      };
+    } catch (e) {
+      return {
+        'error': 'Error obteniendo estadísticas: $e',
+        'timestamp': DateTime.now().toIso8601String(),
+      };
     }
   }
 }

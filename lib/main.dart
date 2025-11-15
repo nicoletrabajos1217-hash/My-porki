@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:my_porki/backend/firebase_options.dart';
@@ -13,24 +14,42 @@ import 'dart:async';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
+
   // 🔹 Inicialización básica
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-  
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  // ---- Diagnóstico rápido de Firebase/Firestore (solo para depuración) ----
+  try {
+    final projectId = Firebase.app().options.projectId;
+    print('✅ Firebase inicializado correctamente (projectId=$projectId)');
+
+    try {
+      final snapshot = await FirebaseFirestore.instance
+          .collection('users')
+          .limit(1)
+          .get();
+      print(
+        '🔎 Firestore accesible: ${snapshot.docs.length} documentos en `users`',
+      );
+    } catch (e) {
+      print('⚠️ No se pudo consultar Firestore: $e');
+    }
+  } catch (e) {
+    print('❌ Error en diagnóstico Firebase: $e');
+  }
+
   await Hive.initFlutter();
   await Hive.openBox('porki_data');
   await Hive.openBox('porki_users');
   await Hive.openBox('porki_sync'); // ✅ NUEVO: Box para sincronización
-  
+
   // 🔹 Inicializar servicios
   await NotificationService.initialize();
   await SowService.initialize();
-  
+
   // ✅ NUEVO: Iniciar sincronización automática en background
   _startBackgroundSync();
-  
+
   // Mostrar errores en pantalla (temporal) para depuración de UI
   ErrorWidget.builder = (FlutterErrorDetails details) {
     return Material(
@@ -54,29 +73,29 @@ void main() async {
 // ✅ NUEVO: Sincronización automática en background
 void _startBackgroundSync() {
   final SyncService syncService = SyncService();
-  
+
   // Sincronizar 10 segundos después de iniciar
-  Timer(Duration(seconds: 10), () async {
+  Timer(const Duration(seconds: 10), () async {
     bool tieneConexion = await syncService.checkConnection();
     if (tieneConexion) {
       print('🔄 Sincronización automática al iniciar...');
       await syncService.syncAllPending();
-      
+
       // Verificar estado de sincronización
       final syncStatus = await syncService.getSyncStatus();
       print('📊 Estado de sincronización: $syncStatus');
     }
   });
-  
+
   // Sincronizar cada 1 minuto
-  Timer.periodic(Duration(minutes: 1), (timer) async {
+  Timer.periodic(const Duration(minutes: 1), (timer) async {
     bool tieneConexion = await syncService.checkConnection();
     if (tieneConexion) {
       print('🔄 Sincronización periódica automática...');
       await syncService.syncAllPending();
     }
   });
-  
+
   // Sincronizar cuando cambia la conexión
   Connectivity().onConnectivityChanged.listen((result) async {
     if (result != ConnectivityResult.none) {
@@ -114,7 +133,7 @@ class AppEntryPoint extends StatefulWidget {
 class _AppEntryPointState extends State<AppEntryPoint> {
   bool _checkingAuth = true;
   late final SyncService _syncService;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
+  StreamSubscription<dynamic>? _connectivitySubscription;
 
   @override
   void initState() {
@@ -142,16 +161,16 @@ class _AppEntryPointState extends State<AppEntryPoint> {
   Future<void> _checkAuthentication() async {
     // ✅ AHORA FUNCIONA: Método estático
     final isLoggedIn = await AuthService.isLoggedIn();
-    
+
     // Pequeña pausa para mostrar el splash
     await Future.delayed(const Duration(milliseconds: 1500));
-    
+
     if (mounted) {
       setState(() {
         _checkingAuth = false;
       });
       print('🔑 Auth checked: isLoggedIn=$isLoggedIn');
-      
+
       // Navegar a la pantalla correspondiente
       if (isLoggedIn) {
         // Obtener datos del usuario
@@ -159,19 +178,15 @@ class _AppEntryPointState extends State<AppEntryPoint> {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (context) => HomeScreen(
-              userData: userData ?? {
-                'username': 'Usuario',
-                'email': '',
-                'role': 'usuario'
-              },
+              userData:
+                  userData ??
+                  {'username': 'Usuario', 'email': '', 'role': 'usuario'},
             ),
           ),
         );
       } else {
         Navigator.of(context).pushReplacement(
-          MaterialPageRoute(
-            builder: (context) => const LoginScreen(),
-          ),
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
         );
       }
     }
@@ -183,8 +198,9 @@ class _AppEntryPointState extends State<AppEntryPoint> {
       // ✅ NUEVO: Sincronización inicial más robusta
       final connectivity = Connectivity();
       final result = await connectivity.checkConnectivity();
-      
-      if (result.isNotEmpty && result.first != ConnectivityResult.none) {
+      final tieneConexion = result != ConnectivityResult.none;
+
+      if (tieneConexion) {
         print('🔄 Iniciando sincronización inicial...');
         // 📥 Descargar cerdas desde Firebase primero
         await _syncService.downloadAllSowsFromFirebase();
@@ -193,23 +209,25 @@ class _AppEntryPointState extends State<AppEntryPoint> {
       } else {
         print('📴 Sin conexión - Datos guardados localmente');
       }
-      
+
       // Programar notificaciones existentes
       await NotificationService.scheduleBirthNotifications();
       await _scheduleExistingVaccines();
-      
+
       // ✅ MEJORADO: Escuchar cambios de conexión
-      _connectivitySubscription = connectivity.onConnectivityChanged.listen((results) async {
-        if (results.isNotEmpty && results.first != ConnectivityResult.none) {
+      _connectivitySubscription = connectivity.onConnectivityChanged.listen((
+        result,
+      ) async {
+        if (result != ConnectivityResult.none) {
           print('🌐 Conexión detectada - Sincronizando...');
           await _syncService.syncAllPending();
           await NotificationService.scheduleBirthNotifications();
           await _scheduleExistingVaccines();
-          
+
           // Mostrar snackbar si la app está visible
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
+              const SnackBar(
                 content: Text('✅ Sincronización completada'),
                 backgroundColor: Colors.green,
                 duration: Duration(seconds: 2),
@@ -228,15 +246,16 @@ class _AppEntryPointState extends State<AppEntryPoint> {
     try {
       final box = await Hive.openBox('porki_data');
       final allData = box.values.toList();
-      
-      final vacunas = allData.where((data) => 
-        data is Map && data['type'] == 'vaccine'
-      ).cast<Map<String, dynamic>>().toList();
-      
+
+      final vacunas = allData
+          .where((data) => data is Map && data['type'] == 'vaccine')
+          .cast<Map<String, dynamic>>()
+          .toList();
+
       for (var vacuna in vacunas) {
         await NotificationService.scheduleVaccineReminders(vacuna);
       }
-      
+
       print('💉 Notificaciones de vacunas programadas: ${vacunas.length}');
     } catch (e) {
       print('❌ Error programando vacunas: $e');
@@ -245,9 +264,7 @@ class _AppEntryPointState extends State<AppEntryPoint> {
 
   @override
   Widget build(BuildContext context) {
-    return _checkingAuth 
-        ? const SplashScreen()
-        : const LoginScreen();
+    return _checkingAuth ? const SplashScreen() : const LoginScreen();
   }
 }
 
@@ -272,7 +289,7 @@ class _SplashScreenState extends State<SplashScreen> {
     try {
       final syncService = SyncService();
       final status = await syncService.getSyncStatus();
-      
+
       if (mounted) {
         setState(() {
           _syncStatus = 'Sincronizado: ${status['syncPercentage']}%';
@@ -295,7 +312,7 @@ class _SplashScreenState extends State<SplashScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(Icons.pets, size: 60, color: Colors.pink),
+            const Icon(Icons.pets, size: 60, color: Colors.pink),
             const SizedBox(height: 20),
             const Text(
               'My Porki',
@@ -308,10 +325,7 @@ class _SplashScreenState extends State<SplashScreen> {
             const SizedBox(height: 10),
             Text(
               _syncStatus,
-              style: TextStyle(
-                fontSize: 14,
-                color: Colors.pink[700],
-              ),
+              style: TextStyle(fontSize: 14, color: Colors.pink[700]),
             ),
             const SizedBox(height: 20),
             const CircularProgressIndicator(color: Colors.pink),

@@ -12,8 +12,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
   final TextEditingController _usernameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  final TextEditingController _confirmPasswordController = TextEditingController();
-  
+  final TextEditingController _confirmPasswordController =
+      TextEditingController();
+
   final _formKey = GlobalKey<FormState>();
 
   bool _isLoading = false;
@@ -42,14 +43,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
 
       if (!mounted) return;
-      
-      _showMessage('✅ Registro exitoso. Ahora puedes iniciar sesión', Colors.green);
-      
+
+      _showMessage(
+        '✅ Registro exitoso. Ahora puedes iniciar sesión',
+        Colors.green,
+      );
+
       await Future.delayed(const Duration(seconds: 1));
-      
+
       if (!mounted) return;
       Navigator.pop(context);
-
     } catch (e) {
       _showMessage(_getErrorMessage(e), Colors.red);
     } finally {
@@ -61,7 +64,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   String _getErrorMessage(dynamic error) {
     final errorString = error.toString();
-    
+
     if (errorString.contains('email-already-in-use')) {
       return 'Este correo ya está registrado.';
     } else if (errorString.contains('weak-password')) {
@@ -122,7 +125,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   void _showMessage(String msg, Color color) {
     if (!mounted) return;
-    
+
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
@@ -183,10 +186,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 const SizedBox(height: 8),
                 const Text(
                   'Únete a My Porki para gestionar tu granja',
-                  style: TextStyle(
-                    fontSize: 16,
-                    color: Colors.grey,
-                  ),
+                  style: TextStyle(fontSize: 16, color: Colors.grey),
                   textAlign: TextAlign.center,
                 ),
                 const SizedBox(height: 40),
@@ -230,7 +230,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _obscurePassword ? Icons.visibility : Icons.visibility_off,
+                        _obscurePassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                       ),
                       onPressed: () {
                         setState(() => _obscurePassword = !_obscurePassword);
@@ -253,10 +255,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
                     prefixIcon: const Icon(Icons.lock_outline),
                     suffixIcon: IconButton(
                       icon: Icon(
-                        _obscureConfirmPassword ? Icons.visibility : Icons.visibility_off,
+                        _obscureConfirmPassword
+                            ? Icons.visibility
+                            : Icons.visibility_off,
                       ),
                       onPressed: () {
-                        setState(() => _obscureConfirmPassword = !_obscureConfirmPassword);
+                        setState(
+                          () => _obscureConfirmPassword =
+                              !_obscureConfirmPassword,
+                        );
                       },
                     ),
                   ),
@@ -282,7 +289,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                             child: const Text('Crear Cuenta'),
                           ),
                           const SizedBox(height: 20),
-                          
+
                           // Enlace para volver al login
                           TextButton(
                             onPressed: _isLoading
@@ -301,7 +308,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       ),
 
                 const SizedBox(height: 20),
-                
+
                 // Información adicional
                 Container(
                   padding: const EdgeInsets.all(16),
@@ -321,10 +328,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                       SizedBox(height: 8),
                       Text(
                         '• Agregar y gestionar cerdas\n• Registrar preñeces y partos\n• Administrar vacunas\n• Ver historial y estadísticas',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Colors.grey,
-                        ),
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ],
                   ),

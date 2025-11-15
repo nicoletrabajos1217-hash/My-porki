@@ -3,6 +3,7 @@ import 'package:hive/hive.dart';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:my_porki/backend/services/notification_service.dart';
 import 'package:my_porki/backend/services/sync_service.dart';
+import 'package:my_porki/backend/services/sow_service.dart';
 import 'package:my_porki/frotend/screens/agregar_cerda_screen.dart';
 import 'package:my_porki/frotend/screens/cerda_detail_screen.dart';
 import 'package:my_porki/frotend/screens/historial_screen.dart';
@@ -22,21 +23,15 @@ class HomeScreen extends StatefulWidget {
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  // Variables para almacenar los datos
-  // ✅ COMENTADO: Estas variables se calculan en tiempo real desde Hive
-  // int _totalCerdas = 0;
-  // int _cerdasPrenadas = 0;
-  // int _totalLechones = 0;
-  // int _totalVacunas = 0;
-  // Ya no usamos _partosHoy como estado global (se calcula en tiempo real desde Hive)
   bool _isLoading = true;
   bool _sincronizando = false;
-  
-  // ✅ NUEVO: Variables para sincronización automática
+
+  // ✅ CORREGIDO: Variables para sincronización
   late final SyncService _syncService;
   Timer? _syncTimer;
-  StreamSubscription<List<ConnectivityResult>>? _connectivitySubscription;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?_firebaseSubscription;
+  StreamSubscription<dynamic>? _connectivitySubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _firebaseSubscription;
 
   // Variables para notificaciones
   List<Map<String, dynamic>> _notificaciones = [];
@@ -46,73 +41,82 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _syncService = SyncService();
-    _iniciarFirebaseListener(); // ✅ PRIMERO: Iniciar listener de Firestore
+    _iniciarFirebaseListener();
     _cargarDatos();
-    _iniciarSincronizacionAutomatica(); // ✅ NUEVO: Sincronización automática
+    // Ejecutar una sincronización inicial automática
+    _sincronizarEnBackground();
+    _iniciarSincronizacionAutomatica();
     print('🏠 HomeScreen initState called');
   }
 
   @override
   void dispose() {
-    // ✅ NUEVO: Limpiar timers y subscriptions
     _syncTimer?.cancel();
     _connectivitySubscription?.cancel();
     _firebaseSubscription?.cancel();
     super.dispose();
   }
 
-  // Escuchar cambios en Firebase y aplicarlos a Hive en tiempo real (MEJORADO)
+  // ✅ CORREGIDO: Listener de Firebase mejorado
   void _iniciarFirebaseListener() {
     try {
       final firestore = FirebaseFirestore.instance;
       print('🌐 === INICIANDO FIREBASE LISTENER ===');
-      print('🎯 Escuchando colección "cerdas"...');
-      
+
       _firebaseSubscription = firestore
-          .collection('cerdas')
+          .collection('sows') // ✅ CORREGIDO: Usar 'sows' en lugar de 'cerdas'
           .snapshots()
           .listen(
             (snapshot) async {
               try {
-                print('📥 ✅ SNAPSHOT RECIBIDO de Firebase: ${snapshot.docs.length} documentos');
-                
-                // Abrir la caja local
+                print(
+                  '📥 ✅ SNAPSHOT RECIBIDO: ${snapshot.docs.length} documentos',
+                );
+
                 final box = await Hive.openBox('porki_data');
-                print('🗃️ Caja Hive abierta: ${box.values.length} items antes de actualizar');
+                print('🗃️ Caja Hive abierta: ${box.values.length} items');
 
                 // Procesar documentos añadidos/actualizados
                 for (var doc in snapshot.docs) {
                   try {
                     final data = doc.data();
                     final sowId = doc.id;
-                    print('  📄 Procesando documento: $sowId - ${data['nombre'] ?? 'sin nombre'}');
 
+                    // ✅ CORREGIDO: Estructura de datos consistente
                     final sowData = {
                       ...data,
-                      'sowId': sowId,
+                      'id': sowId, // ✅ Usar 'id' en lugar de 'sowId'
                       'type': 'sow',
                       'synced': true,
                       'lastSync': DateTime.now().toIso8601String(),
                     };
 
-                    // Buscar por sowId en la caja local
+                    // Buscar por id en la caja local
                     bool encontrado = false;
                     for (var key in box.keys) {
                       final item = box.get(key);
-                      if (item is Map && item['sowId'] == sowId) {
-                        // Merge: mantener historial local si existe
-                        final itemLocal = Map<String, dynamic>.from(item);
-                        sowData['historial'] = itemLocal['historial'] ?? [];
-                        
+                      if (item is Map && item['id'] == sowId) {
+                        // ✅ CORREGIDO: Conversión segura sin cast directo
+                        final Map<dynamic, dynamic> itemLocal = item;
+                        final Map<String, dynamic> convertedItem = {};
+
+                        // Convertir cada clave a String
+                        itemLocal.forEach((key, value) {
+                          convertedItem[key.toString()] = value;
+                        });
+
+                        sowData['historial'] = convertedItem['historial'] ?? [];
+                        sowData['vacunas'] = convertedItem['vacunas'] ?? [];
+
                         await box.put(key, sowData);
                         encontrado = true;
-                        print('    🔄 Cerda ACTUALIZADA en Hive (key=$key): $sowId');
+                        print('    🔄 Cerda ACTUALIZADA en Hive: $sowId');
                         break;
                       }
                     }
 
                     if (!encontrado) {
-                      await box.add(sowData);
+                      await box.put(sowId, sowData); // ✅ Usar sowId como key
                       print('    ✨ Nueva cerda AGREGADA a Hive: $sowId');
                     }
                   } catch (e) {
@@ -120,78 +124,77 @@ class _HomeScreenState extends State<HomeScreen> {
                   }
                 }
 
-                // Procesar documentos eliminados: eliminar locales que ya no existen remotamente
+                // ✅ CORREGIDO: Procesar eliminaciones
                 final remoteIds = snapshot.docs.map((d) => d.id).toSet();
                 for (var key in box.keys.toList()) {
                   final item = box.get(key);
                   if (item is Map && item['type'] == 'sow') {
-                    final localSowId = item['sowId'];
+                    final localSowId = item['id'];
                     if (localSowId != null && !remoteIds.contains(localSowId)) {
                       await box.delete(key);
-                      print('  🗑️ Cerda ELIMINADA de Hive (ya no en Firebase): $localSowId');
+                      print('  🗑️ Cerda ELIMINADA de Hive: $localSowId');
                     }
                   }
                 }
 
                 print('✅ === SNAPSHOT PROCESADO CORRECTAMENTE ===');
-                print('📊 Hive ahora tiene: ${box.values.length} items');
-                // ValueListenableBuilder se actualiza automáticamente gracias a box.listenable()
+
+                // ✅ ACTUALIZAR UI después de cambios
+                if (mounted) {
+                  setState(() {
+                    _isLoading = false;
+                  });
+                }
               } catch (e) {
-                print('❌ Error procesando snapshot de Firebase: $e');
+                print('❌ Error procesando snapshot: $e');
               }
             },
             onError: (e) {
               print('❌ ERROR EN FIREBASE LISTENER: $e');
             },
-            onDone: () {
-              print('⚠️ Firebase listener cerrado/completado');
-            },
           );
-      print('✅ === FIREBASE LISTENER INICIADO CORRECTAMENTE ===');
+      print('✅ === FIREBASE LISTENER INICIADO ===');
     } catch (e) {
       print('❌ FALLO AL INICIAR FIREBASE LISTENER: $e');
     }
   }
 
-  // ✅ NUEVO: Iniciar sincronización automática
+  // ✅ CORREGIDO: Sincronización automática
   void _iniciarSincronizacionAutomatica() {
-    // Sincronizar cada 2 minutos
-    _syncTimer = Timer.periodic(Duration(minutes: 2), (timer) async {
+    _syncTimer = Timer.periodic(const Duration(minutes: 2), (timer) async {
       if (!_sincronizando) {
-        print('🔄 Sincronización automática desde Home...');
+        print('🔄 Sincronización automática...');
         await _sincronizarEnBackground();
       }
     });
 
-    // Escuchar cambios de conexión
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((results) async {
-      if (results.isNotEmpty && results.first != ConnectivityResult.none && !_sincronizando) {
-        print('🌐 Conexión restaurada - Sincronizando desde Home...');
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      result,
+    ) async {
+      final tieneConexion = result != ConnectivityResult.none;
+      if (tieneConexion && !_sincronizando) {
+        print('🌐 Conexión restaurada - Sincronizando...');
         await _sincronizarEnBackground();
       }
     });
   }
 
-  // ✅ NUEVO: Sincronización en background (sin UI blocking)
+  // ✅ CORREGIDO: Sincronización en background
   Future<void> _sincronizarEnBackground() async {
     try {
-      setState(() {
-        _sincronizando = true;
-      });
+      if (mounted) {
+        setState(() {
+          _sincronizando = true;
+        });
+      }
 
       bool tieneConexion = await _syncService.checkConnection();
       if (tieneConexion) {
         print('🔄 Sincronización automática en progreso...');
         await _syncService.syncAllPending();
-        
-        // Verificar estado de sincronización
-        final syncStatus = await _syncService.getSyncStatus();
-        print('📊 Estado sync automático: $syncStatus');
-        
-        // Recargar datos si hubo cambios
-        if (syncStatus['pendingSync'] == 0) {
-          await _cargarDatos();
-        }
+
+        // Recargar datos locales
+        await _cargarDatos();
       }
     } catch (e) {
       print('❌ Error en sincronización automática: $e');
@@ -204,72 +207,58 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Método mejorado para cargar datos desde Hive y sincronizar con Firebase
+  // ✅ CORREGIDO: Cargar datos
   Future<void> _cargarDatos() async {
     try {
-      print('🔄 Iniciando carga de datos desde Hive...');
-      final box = await Hive.openBox('porki_data');
-      final allData = box.values.toList();
-      
-      print('📦 Total de registros en Hive: ${allData.length}');
-      
-      final cerdas = allData.where((data) => data is Map && data['type'] == 'sow').cast<Map<String, dynamic>>().toList();
-      
-      print('🐷 Cerdas encontradas en Hive: ${cerdas.length}');
-      
-      // Si Hive está vacío, descargar desde Firestore
-      if (cerdas.isEmpty) {
-        print('📥 Hive vacío, descargando cerdas desde Firestore...');
-        try {
-          await _syncService.downloadAllSowsFromFirebase();
-          print('✅ Descarga completada desde Firestore');
-        } catch (e) {
-          print('❌ Error descargando desde Firestore: $e');
-        }
-      }
+      print('🔄 Iniciando carga de datos...');
 
-      // ✅ CORREGIDO: Usar el método que SÍ existe en tu NotificationService
+      // ✅ USAR SOW SERVICE para obtener datos
+      final cerdas = await SowService.obtenerCerdas();
+      print('🐷 Cerdas encontradas: ${cerdas.length}');
+
+      // Obtener notificaciones
       final partosProximos = await NotificationService.getPartosProximos();
 
-      setState(() {
-        _notificaciones = partosProximos;
-        _cantidadNotificaciones = partosProximos.length;
-        _isLoading = false;
-      });
-      
-      print('✅ Datos cargados: ${cerdas.length} cerdas, ${partosProximos.length} notificaciones');
-      
+      if (mounted) {
+        setState(() {
+          _notificaciones = partosProximos;
+          _cantidadNotificaciones = partosProximos.length;
+          _isLoading = false;
+        });
+      }
+
+      print(
+        '✅ Datos cargados: ${cerdas.length} cerdas, ${partosProximos.length} notificaciones',
+      );
     } catch (e) {
-      print('❌ Error cargando datos en Home: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      print('❌ Error cargando datos: $e');
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
-  // Método para sincronizar manualmente - MEJORADO
+  // ✅ CORREGIDO: Sincronización manual
   Future<void> _sincronizarManual() async {
-    setState(() {
-      _sincronizando = true;
-    });
-    
+    if (mounted) {
+      setState(() {
+        _sincronizando = true;
+      });
+    }
+
     try {
       print('🔄 Iniciando sincronización manual...');
-      
+
       bool tieneConexion = await _syncService.checkConnection();
       if (tieneConexion) {
         await _syncService.syncAllPending();
-        
-        // Verificar estado
-        final syncStatus = await _syncService.getSyncStatus();
-        print('📊 Estado sync manual: $syncStatus');
-        
-        // Recargar datos después de sincronizar
         await _cargarDatos();
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text("✅ Sincronización completada (${syncStatus['syncedCerdas']}/${syncStatus['totalCerdas']})"),
+          const SnackBar(
+            content: Text("✅ Sincronización completada"),
             backgroundColor: Colors.green,
           ),
         );
@@ -290,17 +279,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       );
     } finally {
-      setState(() {
-        _sincronizando = false;
-      });
+      if (mounted) {
+        setState(() {
+          _sincronizando = false;
+        });
+      }
     }
   }
 
-  // ✅ NUEVO: Método para ver estado de sincronización
-  Future<void> _verEstadoSync() async {
+  // ✅ CORREGIDO: Ver estado de sincronización
+  Future<void> verEstadoSync() async {
     try {
       final syncStatus = await _syncService.getSyncStatus();
-      
+
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -309,13 +300,17 @@ class _HomeScreenState extends State<HomeScreen> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text('✅ Cerdas sincronizadas: ${syncStatus['syncedCerdas']}/${syncStatus['totalCerdas']}'),
+              Text(
+                '✅ Cerdas sincronizadas: ${syncStatus['syncedCerdas']}/${syncStatus['totalCerdas']}',
+              ),
               Text('📋 Pendientes: ${syncStatus['pendingSync']}'),
               Text('📊 Porcentaje: ${syncStatus['syncPercentage']}%'),
               const SizedBox(height: 16),
               if (syncStatus['pendingSync'] > 0)
-                const Text('ℹ️ Los datos pendientes se sincronizarán automáticamente', 
-                  style: TextStyle(fontSize: 12, color: Colors.grey)),
+                const Text(
+                  'ℹ️ Los datos pendientes se sincronizarán automáticamente',
+                  style: TextStyle(fontSize: 12, color: Colors.grey),
+                ),
             ],
           ),
           actions: [
@@ -358,49 +353,28 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text('My Porki - $username'),
         backgroundColor: Colors.pink,
         actions: [
-          // ✅ MEJORADO: Botón de estado de sincronización
-          IconButton(
-            icon: const Icon(Icons.info_outline),
-            onPressed: _verEstadoSync,
-            tooltip: 'Estado de sincronización',
-          ),
-          
-          // Botón de sincronización
-          if (_sincronizando)
-            const Padding(
-              padding: EdgeInsets.all(8.0),
-              child: SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
-            )
-          else
-            IconButton(
-              icon: const Icon(Icons.sync),
-              onPressed: _sincronizarManual,
-              tooltip: 'Sincronizar manualmente',
-            ),
-          
-          // Badge de notificaciones (calcula en tiempo real desde Hive)
           ValueListenableBuilder<Box>(
             valueListenable: Hive.box('porki_data').listenable(),
             builder: (context, boxNotif, _) {
-              final cerdas = boxNotif.values.where((data) => data is Map && data['type'] == 'sow').cast<Map<String, dynamic>>().toList();
-              // Calcular recordatorios (partos próximos) — similar a NotificationService
-              final ahora = DateTime.now();
+              // ✅ SOLUCIÓN DEFINITIVA - Versión simplificada
               int notCount = 0;
-              for (var cerda in cerdas) {
-                final fechaEstim = cerda['fecha_estim_parto'];
-                if (fechaEstim != null) {
-                  try {
-                    final fecha = DateTime.parse(fechaEstim);
-                    final diff = fecha.difference(ahora).inDays;
-                    if (diff <= 7 && diff >= 0) notCount++;
-                  } catch (e) {}
+              final ahora = DateTime.now();
+
+              for (var data in boxNotif.values) {
+                if (data is Map && data['type'] == 'sow') {
+                  // ✅ CORRECCIÓN: Conversión segura sin cast directo
+                  final Map<dynamic, dynamic> dynamicMap = data;
+                  final fechaParto = dynamicMap['fecha_parto_calculado'];
+
+                  if (fechaParto != null) {
+                    try {
+                      final fecha = DateTime.parse(fechaParto.toString());
+                      final diff = fecha.difference(ahora).inDays;
+                      if (diff <= 7 && diff >= 0) notCount++;
+                    } catch (e) {
+                      print('Error parseando fecha: $e');
+                    }
+                  }
                 }
               }
 
@@ -411,10 +385,10 @@ class _HomeScreenState extends State<HomeScreen> {
                     onPressed: () {
                       Navigator.push(
                         context,
-                        MaterialPageRoute(builder: (context) => const NotificacionesScreen()),
-                      ).then((_) {
-                        _cargarDatos();
-                      });
+                        MaterialPageRoute(
+                          builder: (context) => const NotificacionesScreen(),
+                        ),
+                      );
                     },
                   ),
                   if (notCount > 0)
@@ -445,52 +419,13 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: () {
-              print('🔄 Botón Refresh presionado manualmente');
-              setState(() {
-                _isLoading = true;
-              });
-              _cargarDatos().then((_) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Datos actualizados ✅")),
-                );
-              });
-            },
-          ),
-          
-          // ✅ NUEVO: Botón para descargar datos de Firestore manualmente
-          IconButton(
-            icon: const Icon(Icons.cloud_download),
-            tooltip: 'Descargar de Firestore',
-            onPressed: () async {
-              print('📥 Descargando datos desde Firestore...');
-              try {
-                await _syncService.downloadAllSowsFromFirebase();
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text("Datos descargados desde Firestore ✅")),
-                );
-              } catch (e) {
-                if (!mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text("Error descargando: $e")),
-                );
-              }
-            },
-          ),
         ],
       ),
       drawer: _buildDrawer(context, username, role),
-      body: _isLoading 
-          ? _buildLoadingScreen()
-          : _buildBody(context),
-      // Se removió el FloatingActionButton '+' por solicitud (se usa 'Agregar Cerda' en el menú)
+      body: _isLoading ? _buildLoadingScreen() : _buildBody(context),
     );
   }
 
-  // Pantalla de carga
   Widget _buildLoadingScreen() {
     return const Center(
       child: Column(
@@ -514,7 +449,6 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Logo
                 Image.asset(
                   'assets/images/LogoAlex.png',
                   width: 70,
@@ -533,7 +467,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   role.toUpperCase(),
                   style: const TextStyle(color: Colors.white70, fontSize: 14),
                 ),
-                // ✅ NUEVO: Estado de sync en drawer
                 if (_sincronizando)
                   const Padding(
                     padding: EdgeInsets.only(top: 4.0),
@@ -544,7 +477,9 @@ class _HomeScreenState extends State<HomeScreen> {
                           height: 12,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         ),
                         SizedBox(width: 4),
@@ -587,21 +522,29 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          // Item de notificaciones en el drawer (dinámico desde Hive)
+          // ✅ CORREGIDO DEFINITIVO: Versión simplificada sin conversión de Map
           ValueListenableBuilder<Box>(
             valueListenable: Hive.box('porki_data').listenable(),
             builder: (context, boxNotif, _) {
-              final cerdas = boxNotif.values.where((data) => data is Map && data['type'] == 'sow').cast<Map<String, dynamic>>().toList();
-              final ahora = DateTime.now();
+              // ✅ SOLUCIÓN DEFINITIVA - Versión simplificada
               int notCount = 0;
-              for (var cerda in cerdas) {
-                final fechaEstim = cerda['fecha_estim_parto'];
-                if (fechaEstim != null) {
-                  try {
-                    final fecha = DateTime.parse(fechaEstim);
-                    final diff = fecha.difference(ahora).inDays;
-                    if (diff <= 7 && diff >= 0) notCount++;
-                  } catch (e) {}
+              final ahora = DateTime.now();
+
+              for (var data in boxNotif.values) {
+                if (data is Map && data['type'] == 'sow') {
+                  // ✅ CORRECCIÓN: Conversión segura sin cast directo
+                  final Map<dynamic, dynamic> dynamicMap = data;
+                  final fechaParto = dynamicMap['fecha_parto_calculado'];
+
+                  if (fechaParto != null) {
+                    try {
+                      final fecha = DateTime.parse(fechaParto.toString());
+                      final diff = fecha.difference(ahora).inDays;
+                      if (diff <= 7 && diff >= 0) notCount++;
+                    } catch (e) {
+                      print('Error parseando fecha: $e');
+                    }
+                  }
                 }
               }
 
@@ -617,7 +560,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         ),
                         child: Text(
                           notCount.toString(),
-                          style: const TextStyle(color: Colors.white, fontSize: 12),
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 12,
+                          ),
                         ),
                       )
                     : null,
@@ -625,37 +571,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.pop(context);
                   Navigator.push(
                     context,
-                    MaterialPageRoute(builder: (context) => const NotificacionesScreen()),
+                    MaterialPageRoute(
+                      builder: (context) => const NotificacionesScreen(),
+                    ),
                   );
                 },
               );
             },
           ),
           const Divider(),
-          // ✅ MEJORADO: Opción para sincronización manual
-          ListTile(
-            leading: Icon(
-              Icons.sync,
-              color: _sincronizando ? Colors.grey : Colors.blue,
-            ),
-            title: _sincronizando 
-                ? const Text('Sincronizando...')
-                : const Text('Sincronizar ahora'),
-            trailing: _sincronizando
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : null,
-            onTap: _sincronizando ? null : _sincronizarManual,
-          ),
-          // ✅ NUEVO: Estado de sincronización
-          ListTile(
-            leading: const Icon(Icons.info, color: Colors.green),
-            title: const Text('Estado Sync'),
-            onTap: _verEstadoSync,
-          ),
           ListTile(
             leading: const Icon(Icons.settings, color: Colors.grey),
             title: const Text('Configuración'),
@@ -674,9 +598,13 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
+          // ✅ CORREGIDO: Botón de Cerrar Sesión en color rosa
           ListTile(
-            leading: const Icon(Icons.exit_to_app, color: Colors.red),
-            title: const Text('Cerrar Sesión'),
+            leading: const Icon(Icons.exit_to_app, color: Colors.pink),
+            title: const Text(
+              'Cerrar Sesión',
+              style: TextStyle(color: Colors.pink),
+            ),
             onTap: () {
               _mostrarDialogoCerrarSesion(context);
             },
@@ -692,7 +620,7 @@ class _HomeScreenState extends State<HomeScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Tarjeta de bienvenida - ACTUALIZADA
+          // Tarjeta de bienvenida
           Card(
             elevation: 4,
             child: Padding(
@@ -718,10 +646,12 @@ class _HomeScreenState extends State<HomeScreen> {
                     children: [
                       Text(
                         'Actualizado: ${DateTime.now().hour}:${DateTime.now().minute.toString().padLeft(2, '0')}',
-                        style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Colors.grey,
+                        ),
                       ),
                       const Spacer(),
-                      // ✅ MEJORADO: Indicador de sync automático
                       if (_sincronizando)
                         const Row(
                           children: [
@@ -733,7 +663,10 @@ class _HomeScreenState extends State<HomeScreen> {
                             SizedBox(width: 4),
                             Text(
                               'Sincronizando...',
-                              style: TextStyle(fontSize: 10, color: Colors.grey),
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.grey,
+                              ),
                             ),
                           ],
                         ),
@@ -776,11 +709,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder: (context) => AgregarCerdaScreen(),
+                      builder: (context) => const AgregarCerdaScreen(),
                     ),
-                  ).then((_) {
-                    _cargarDatos();
-                  });
+                  );
                 },
               ),
               _buildActionCard(
@@ -820,9 +751,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute(
                       builder: (context) => const NotificacionesScreen(),
                     ),
-                  ).then((_) {
-                    _cargarDatos();
-                  });
+                  );
                 },
               ),
             ],
@@ -835,27 +764,40 @@ class _HomeScreenState extends State<HomeScreen> {
             future: Hive.openBox('porki_data'),
             builder: (context, snapshot) {
               if (!snapshot.hasData) {
-                return const Center(child: CircularProgressIndicator(color: Colors.pink));
+                return const Center(
+                  child: CircularProgressIndicator(color: Colors.pink),
+                );
               }
 
               final box = snapshot.data as Box;
 
-              // Escuchar cambios en la caja para actualizar el resumen en tiempo real
               return ValueListenableBuilder<Box>(
                 valueListenable: box.listenable(),
                 builder: (context, Box listenedBox, _) {
-                  // ✅ DEBUG: Mostrar estado en logs
-                  print('📊 ValueListenableBuilder rebuild - Hive tiene ${listenedBox.values.length} items');
-                  
-                  final cerdas = listenedBox
-                      .values
-                      .where((data) => data is Map && data['type'] == 'sow')
-                      .cast<Map<String, dynamic>>()
-                      .toList();
+                  // ✅ CORREGIDO DEFINITIVO: Conversión segura para el resumen
+                  final cerdas = <Map<String, dynamic>>[];
 
-                  print('🐷 Calculando resumen: ${cerdas.length} cerdas detectadas');
+                  for (var data in listenedBox.values) {
+                    if (data is Map && data['type'] == 'sow') {
+                      try {
+                        final Map<dynamic, dynamic> dynamicMap = data;
+                        final stringMap = <String, dynamic>{};
 
-                  int prenadas = cerdas.where((cerda) => cerda['embarazada'] == true).length;
+                        // ✅ CORRECCIÓN: Conversión segura clave por clave
+                        dynamicMap.forEach((key, value) {
+                          stringMap[key.toString()] = value;
+                        });
+
+                        cerdas.add(stringMap);
+                      } catch (e) {
+                        print('⚠️ Error convirtiendo mapa en resumen: $e');
+                      }
+                    }
+                  }
+
+                  int prenadas = cerdas
+                      .where((cerda) => cerda['estado'] == 'preñada')
+                      .length;
 
                   int totalLechones = 0;
                   int partosHoy = 0;
@@ -867,103 +809,148 @@ class _HomeScreenState extends State<HomeScreen> {
                   for (var cerda in cerdas) {
                     totalLechones += (cerda['lechones_nacidos'] as int? ?? 0);
 
-                    // Contar partos de hoy y pendientes por cerda
-                    final partos = List<Map<String, dynamic>>.from(cerda['partos'] ?? []);
-                    for (var parto in partos) {
-                      if (parto['fecha_parto'] != null) {
-                        try {
-                          final fechaParto = DateTime.parse(parto['fecha_parto']);
-                          if (fechaParto.year == ahora.year && 
-                              fechaParto.month == ahora.month && 
-                              fechaParto.day == ahora.day) {
-                            partosHoy++;
-                          } else if (fechaParto.isAfter(ahora)) {
-                            // Partos pendientes (futuros)
-                            partosPendientes++;
-                          }
-                        } catch (e) {
-                          // Fecha inválida, continuar
+                    // Contar partos de hoy
+                    final fechaParto = cerda['fecha_parto_calculado'];
+                    if (fechaParto != null) {
+                      try {
+                        final fecha = DateTime.parse(fechaParto.toString());
+                        if (fecha.year == ahora.year &&
+                            fecha.month == ahora.month &&
+                            fecha.day == ahora.day) {
+                          partosHoy++;
+                        } else if (fecha.isAfter(ahora)) {
+                          partosPendientes++;
                         }
+                      } catch (e) {
+                        print('Error parseando fecha parto: $e');
                       }
                     }
 
-                    // Contar vacunas de hoy (fecha = hoy)
-                    final vacunas = List<Map<String, dynamic>>.from(cerda['vacunas'] ?? []);
-                    for (var vacuna in vacunas) {
-                      if (vacuna['fecha'] != null) {
-                        try {
-                          final fechaVacuna = DateTime.parse(vacuna['fecha']);
-                          if (fechaVacuna.year == ahora.year && 
-                              fechaVacuna.month == ahora.month && 
-                              fechaVacuna.day == ahora.day) {
-                            vacunasHoy++;
+                    // Contar vacunas de hoy
+                    final vacunas = cerda['vacunas'] ?? [];
+                    if (vacunas is List) {
+                      for (var vacuna in vacunas) {
+                        if (vacuna is Map && vacuna['fecha'] != null) {
+                          try {
+                            final fechaVacuna = DateTime.parse(
+                              vacuna['fecha'].toString(),
+                            );
+                            if (fechaVacuna.year == ahora.year &&
+                                fechaVacuna.month == ahora.month &&
+                                fechaVacuna.day == ahora.day) {
+                              vacunasHoy++;
+                            }
+                          } catch (e) {
+                            print('Error parseando fecha vacuna: $e');
                           }
-                        } catch (e) {
-                          // Fecha inválida, continuar
                         }
                       }
                     }
                   }
 
-                  // Actualizar estado local opcional (no obligatorio)
-                  // if (mounted) setState(() => _partosHoy = partosHoy);
-
                   return Column(
                     children: [
-                  Card(
-                    elevation: 3,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
+                      Card(
+                        elevation: 3,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Icon(Icons.analytics, color: Colors.pink),
-                              const SizedBox(width: 8),
-                              const Text(
-                                'Resumen General 🐷',
-                                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                              ),
-                              const Spacer(),
-                              // ✅ NUEVO: Indicador de que está escuchando Firestore
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: Colors.green[100],
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: Colors.green),
-                                ),
-                                child: const Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    Icon(Icons.cloud_done, color: Colors.green, size: 14),
-                                    SizedBox(width: 4),
-                                    Text(
-                                      'En tiempo real',
-                                      style: TextStyle(fontSize: 10, color: Colors.green),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                              const SizedBox(height: 16),
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceAround,
                                 children: [
-                                  _buildInfoItem('Total Cerdas', _formatNumber(cerdas.length), '🐖', cerdas.length),
-                                  _buildInfoItem('Preñas', _formatNumber(prenadas), '🐷', prenadas),
-                                  _buildInfoItem('Lechones', _formatNumber(totalLechones), '🐽', totalLechones),
+                                  const Icon(
+                                    Icons.analytics,
+                                    color: Colors.pink,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Text(
+                                    'Resumen General 🐷',
+                                    style: TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const Spacer(),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 8,
+                                      vertical: 4,
+                                    ),
+                                    decoration: BoxDecoration(
+                                      color: Colors.green[100],
+                                      borderRadius: BorderRadius.circular(12),
+                                      border: Border.all(color: Colors.green),
+                                    ),
+                                    child: const Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Icon(
+                                          Icons.cloud_done,
+                                          color: Colors.green,
+                                          size: 14,
+                                        ),
+                                        SizedBox(width: 4),
+                                        Text(
+                                          'En tiempo real',
+                                          style: TextStyle(
+                                            fontSize: 10,
+                                            color: Colors.green,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
                                 ],
                               ),
                               const SizedBox(height: 16),
                               Row(
-                                mainAxisAlignment: MainAxisAlignment.spaceAround,
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceAround,
                                 children: [
-                                  _buildInfoItem('Partos Hoy', partosHoy.toString(), '📅', partosHoy),
-                                  _buildInfoItem('Partos Pendientes', partosPendientes.toString(), '⏰', partosPendientes),
-                                  _buildInfoItem('Vacunas Hoy', vacunasHoy.toString(), '💉', vacunasHoy),
+                                  _buildInfoItem(
+                                    'Total Cerdas',
+                                    _formatNumber(cerdas.length),
+                                    '🐖',
+                                    cerdas.length,
+                                  ),
+                                  _buildInfoItem(
+                                    'Preñadas',
+                                    _formatNumber(prenadas),
+                                    '🐷',
+                                    prenadas,
+                                  ),
+                                  _buildInfoItem(
+                                    'Lechones',
+                                    _formatNumber(totalLechones),
+                                    '🐽',
+                                    totalLechones,
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                mainAxisAlignment:
+                                    MainAxisAlignment.spaceAround,
+                                children: [
+                                  _buildInfoItem(
+                                    'Partos Hoy',
+                                    partosHoy.toString(),
+                                    '📅',
+                                    partosHoy,
+                                  ),
+                                  _buildInfoItem(
+                                    'Partos Pendientes',
+                                    partosPendientes.toString(),
+                                    '⏰',
+                                    partosPendientes,
+                                  ),
+                                  _buildInfoItem(
+                                    'Vacunas Hoy',
+                                    vacunasHoy.toString(),
+                                    '💉',
+                                    vacunasHoy,
+                                  ),
                                 ],
                               ),
                             ],
@@ -979,12 +966,17 @@ class _HomeScreenState extends State<HomeScreen> {
                             padding: const EdgeInsets.all(12.0),
                             child: Row(
                               children: [
-                                const Icon(Icons.child_care, color: Colors.blue),
+                                const Icon(
+                                  Icons.child_care,
+                                  color: Colors.blue,
+                                ),
                                 const SizedBox(width: 8),
                                 Expanded(
                                   child: Text(
                                     '¡$partosHoy parto${partosHoy == 1 ? '' : 's'} hoy! 🎊',
-                                    style: const TextStyle(fontWeight: FontWeight.bold),
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
                                   ),
                                 ),
                               ],
@@ -998,64 +990,11 @@ class _HomeScreenState extends State<HomeScreen> {
               );
             },
           ),
-          // Panel de notificaciones calculado en tiempo real desde Hive
-          ValueListenableBuilder<Box>(
-            valueListenable: Hive.box('porki_data').listenable(),
-            builder: (context, boxNotif, _) {
-              final cerdas = boxNotif.values.where((data) => data is Map && data['type'] == 'sow').cast<Map<String, dynamic>>().toList();
-              final ahora = DateTime.now();
-              final notifs = <Map<String, dynamic>>[];
-
-              for (var cerda in cerdas) {
-                final fechaEstim = cerda['fecha_estim_parto'];
-                if (fechaEstim != null) {
-                  try {
-                    final fecha = DateTime.parse(fechaEstim);
-                    final diff = fecha.difference(ahora).inDays;
-                    if (diff <= 7 && diff >= 0) {
-                      notifs.add({
-                        'mensaje': 'Parto próximo',
-                        'cerda': cerda,
-                        'prioridad': diff <= 1 ? 'alta' : 'media',
-                      });
-                    }
-                  } catch (e) {}
-                }
-              }
-
-              if (notifs.isEmpty) return const SizedBox();
-
-              return Column(
-                children: [
-                  const SizedBox(height: 8),
-                  Card(
-                    color: Colors.orange[50],
-                    child: Padding(
-                      padding: const EdgeInsets.all(12.0),
-                      child: Row(
-                        children: [
-                          const Icon(Icons.notifications_active, color: Colors.orange),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '¡${notifs.length} recordatorio${notifs.length == 1 ? '' : 's'} de partos! ⏰',
-                              style: const TextStyle(fontWeight: FontWeight.bold),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
-          ),
         ],
       ),
     );
   }
 
-  // Widget para panel de notificaciones
   Widget _buildPanelNotificaciones() {
     return Card(
       elevation: 4,
@@ -1075,7 +1014,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
                 const Spacer(),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: Colors.orange,
                     borderRadius: BorderRadius.circular(12),
@@ -1088,7 +1030,9 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
             const SizedBox(height: 12),
-            ..._notificaciones.take(3).map((notif) => _buildItemNotificacion(notif)),
+            ..._notificaciones
+                .take(3)
+                .map((notif) => _buildItemNotificacion(notif)),
             if (_notificaciones.length > 3) ...[
               const SizedBox(height: 8),
               Text(
@@ -1106,9 +1050,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute(
                       builder: (context) => const NotificacionesScreen(),
                     ),
-                  ).then((_) {
-                    _cargarDatos();
-                  });
+                  );
                 },
                 child: const Text('Ver todas las notificaciones'),
               ),
@@ -1119,11 +1061,10 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Widget para item de notificación
   Widget _buildItemNotificacion(Map<String, dynamic> notificacion) {
     final prioridad = notificacion['prioridad'] ?? 'media';
     final color = prioridad == 'alta' ? Colors.red : Colors.orange;
-    
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -1134,11 +1075,7 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.pregnant_woman,
-            color: color,
-            size: 20,
-          ),
+          Icon(Icons.pregnant_woman, color: color, size: 20),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -1146,10 +1083,7 @@ class _HomeScreenState extends State<HomeScreen> {
               children: [
                 Text(
                   notificacion['mensaje'] ?? 'Parto próximo',
-                  style: TextStyle(
-                    fontWeight: FontWeight.w500,
-                    color: color,
-                  ),
+                  style: TextStyle(fontWeight: FontWeight.w500, color: color),
                 ),
                 const SizedBox(height: 4),
                 Text(
@@ -1159,16 +1093,13 @@ class _HomeScreenState extends State<HomeScreen> {
               ],
             ),
           ),
-          if (prioridad == 'alta') ...[
-            const SizedBox(width: 8),
+          if (prioridad == 'alta')
             const Icon(Icons.warning, color: Colors.red, size: 16),
-          ],
         ],
       ),
     );
   }
 
-  // Acción rápida
   Widget _buildActionCard(
     BuildContext context,
     String title,
@@ -1184,9 +1115,10 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            title.contains('Ver Cerdas')
-                ? const Text('🐷', style: TextStyle(fontSize: 40))
-                : Icon(icon, size: 40, color: color),
+            if (title == 'Ver Cerdas')
+              _buildCerditoFace() // ✅ NUEVO: Cara de cerdito personalizada
+            else
+              Icon(icon, size: 40, color: color),
             const SizedBox(height: 8),
             Text(
               title,
@@ -1199,7 +1131,113 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  // Item de información
+  // ✅ NUEVO: Widget para dibujar la cara del cerdito
+  Widget _buildCerditoFace() {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        color: Colors.pink[100],
+        borderRadius: BorderRadius.circular(30),
+        border: Border.all(color: Colors.pink, width: 2),
+      ),
+      child: Stack(
+        children: [
+          // Orejas
+          Positioned(
+            top: 5,
+            left: 5,
+            child: Container(
+              width: 15,
+              height: 15,
+              decoration: BoxDecoration(
+                color: Colors.pink[300],
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(10),
+                  bottomRight: Radius.circular(5),
+                ),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 5,
+            right: 5,
+            child: Container(
+              width: 15,
+              height: 15,
+              decoration: BoxDecoration(
+                color: Colors.pink[300],
+                borderRadius: const BorderRadius.only(
+                  topRight: Radius.circular(10),
+                  bottomLeft: Radius.circular(5),
+                ),
+              ),
+            ),
+          ),
+          // Ojos
+          Positioned(
+            top: 20,
+            left: 15,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          Positioned(
+            top: 20,
+            right: 15,
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: Colors.black,
+                borderRadius: BorderRadius.circular(4),
+              ),
+            ),
+          ),
+          // Nariz (hocico)
+          Positioned(
+            bottom: 15,
+            left: 20,
+            right: 20,
+            child: Container(
+              height: 20,
+              decoration: BoxDecoration(
+                color: Colors.pink[300],
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: BoxDecoration(
+                      color: Colors.black,
+                      borderRadius: BorderRadius.circular(3),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildInfoItem(String title, String value, String emoji, int numero) {
     return Column(
       children: [
@@ -1214,17 +1252,16 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         Text(
-          title, 
+          title,
           style: TextStyle(
-            fontSize: 12, 
-            color: numero > 0 ? Colors.black87 : Colors.grey
+            fontSize: 12,
+            color: numero > 0 ? Colors.black87 : Colors.grey,
           ),
         ),
       ],
     );
   }
 
-  // Cierre de sesión
   void _mostrarDialogoCerrarSesion(BuildContext context) {
     showDialog(
       context: context,
@@ -1236,12 +1273,13 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: () => Navigator.pop(context),
             child: const Text('Cancelar'),
           ),
+          // ✅ CORREGIDO: Botón de Cerrar Sesión en color rosa
           TextButton(
             onPressed: () {
-              // ✅ NUEVO: Limpiar sync antes de cerrar sesión
               _syncTimer?.cancel();
               _connectivitySubscription?.cancel();
-              
+              _firebaseSubscription?.cancel();
+
               Navigator.pop(context);
               Navigator.pushAndRemoveUntil(
                 context,
@@ -1251,11 +1289,27 @@ class _HomeScreenState extends State<HomeScreen> {
             },
             child: const Text(
               'Cerrar Sesión',
-              style: TextStyle(color: Colors.red),
+              style: TextStyle(color: Colors.pink),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+// Clase CerdasScreen faltante (añadida para completar el código)
+class CerdasScreen extends StatelessWidget {
+  const CerdasScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('Mis Cerdas'),
+        backgroundColor: Colors.pink,
+      ),
+      body: const Center(child: Text('Pantalla de Cerdas - En desarrollo')),
     );
   }
 }

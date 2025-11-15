@@ -12,15 +12,16 @@ import 'package:timezone/data/latest.dart' as tzdata;
 /// `timezone` y usar `zonedSchedule`, o implementar un servicio en segundo plano.
 
 class NotificationService {
-  static final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
+  static final FlutterLocalNotificationsPlugin _plugin =
+      FlutterLocalNotificationsPlugin();
 
   /// Inicializa el plugin de notificaciones y timezone.
   static Future<void> initialize() async {
     // Inicializar timezone
     tzdata.initializeTimeZones();
-    
+
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-    final iosInit = DarwinInitializationSettings(
+    const iosInit = DarwinInitializationSettings(
       requestAlertPermission: true,
       requestBadgePermission: true,
       requestSoundPermission: true,
@@ -46,7 +47,9 @@ class NotificationService {
       final proximos = <Map<String, dynamic>>[];
 
       for (var item in allData) {
-        if (item is Map && item['type'] == 'sow' && item['fecha_parto_calculado'] != null) {
+        if (item is Map &&
+            item['type'] == 'sow' &&
+            item['fecha_parto_calculado'] != null) {
           final fecha = DateTime.tryParse(item['fecha_parto_calculado']);
           if (fecha != null) {
             final dias = fecha.difference(ahora).inDays;
@@ -80,7 +83,7 @@ class NotificationService {
         final nombreCerda = p['cerda']?['nombre'] ?? 'Sin nombre';
         final fechaParto = DateTime.parse(p['fecha_parto']);
         final diasRestantes = p['dias_restantes'] ?? 0;
-        
+
         // Programar para las 09:00 del día del parto
         final scheduledDate = tz.TZDateTime(
           tz.local,
@@ -97,7 +100,7 @@ class NotificationService {
             id,
             'Parto próximo',
             'Cerda: $nombreCerda — ¡Parto hoy!',
-            NotificationDetails(
+            const NotificationDetails(
               android: AndroidNotificationDetails(
                 'partos_channel',
                 'Partos',
@@ -105,7 +108,7 @@ class NotificationService {
                 importance: Importance.max,
                 priority: Priority.high,
               ),
-              iOS: const DarwinNotificationDetails(),
+              iOS: DarwinNotificationDetails(),
             ),
             payload: p['cerda']?.toString(),
           );
@@ -116,7 +119,7 @@ class NotificationService {
             'Parto próximo',
             'Cerda: $nombreCerda — Parto en $diasRestantes días',
             scheduledDate,
-            NotificationDetails(
+            const NotificationDetails(
               android: AndroidNotificationDetails(
                 'partos_channel',
                 'Partos',
@@ -124,13 +127,16 @@ class NotificationService {
                 importance: Importance.max,
                 priority: Priority.high,
               ),
-              iOS: const DarwinNotificationDetails(),
+              iOS: DarwinNotificationDetails(),
             ),
             androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-            uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+            uiLocalNotificationDateInterpretation:
+                UILocalNotificationDateInterpretation.absoluteTime,
             payload: p['cerda']?.toString(),
           );
-          print('📅 Notificación de parto programada para: $nombreCerda - ${scheduledDate.toIso8601String()}');
+          print(
+            '📅 Notificación de parto programada para: $nombreCerda - ${scheduledDate.toIso8601String()}',
+          );
         }
 
         id++;
@@ -142,14 +148,20 @@ class NotificationService {
 
   /// Programa recordatorios para vacunas en las fechas exactas.
   /// Las notificaciones se mostrarán a las 09:00 de cada fecha de dosis.
-  static Future<void> scheduleVaccineReminders(Map<String, dynamic> vacuna) async {
+  static Future<void> scheduleVaccineReminders(
+    Map<String, dynamic> vacuna,
+  ) async {
     try {
       final nombre = vacuna['nombre'] ?? vacuna['nombre_vacuna'] ?? 'Vacuna';
-      final dosisProgramadas = vacuna['dosis_programadas'] as List? ?? vacuna['dosis'] as List? ?? [];
+      final dosisProgramadas =
+          vacuna['dosis_programadas'] as List? ??
+          vacuna['dosis'] as List? ??
+          [];
       int id = DateTime.now().millisecondsSinceEpoch.remainder(100000);
 
       for (var d in dosisProgramadas) {
-        final fechaStr = d['fecha_programada'] ?? d['fecha'] ?? d['fecha_primer_dosis'];
+        final fechaStr =
+            d['fecha_programada'] ?? d['fecha'] ?? d['fecha_primer_dosis'];
         if (fechaStr == null) continue;
         final fecha = DateTime.tryParse(fechaStr.toString());
         if (fecha == null) continue;
@@ -172,7 +184,7 @@ class NotificationService {
               id,
               'Vacuna pendiente',
               '$nombre - Dosis $dosis (hoy)',
-              NotificationDetails(
+              const NotificationDetails(
                 android: AndroidNotificationDetails(
                   'vacunas_channel',
                   'Vacunas',
@@ -180,7 +192,7 @@ class NotificationService {
                   importance: Importance.high,
                   priority: Priority.high,
                 ),
-                iOS: const DarwinNotificationDetails(),
+                iOS: DarwinNotificationDetails(),
               ),
             );
           } else {
@@ -190,7 +202,7 @@ class NotificationService {
               'Vacuna pendiente',
               '$nombre - Dosis $dosis',
               scheduledDate,
-              NotificationDetails(
+              const NotificationDetails(
                 android: AndroidNotificationDetails(
                   'vacunas_channel',
                   'Vacunas',
@@ -198,12 +210,15 @@ class NotificationService {
                   importance: Importance.high,
                   priority: Priority.high,
                 ),
-                iOS: const DarwinNotificationDetails(),
+                iOS: DarwinNotificationDetails(),
               ),
               androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
-              uiLocalNotificationDateInterpretation: UILocalNotificationDateInterpretation.absoluteTime,
+              uiLocalNotificationDateInterpretation:
+                  UILocalNotificationDateInterpretation.absoluteTime,
             );
-            print('💉 Notificación de vacuna programada: $nombre - Dosis $dosis - ${scheduledDate.toIso8601String()}');
+            print(
+              '💉 Notificación de vacuna programada: $nombre - Dosis $dosis - ${scheduledDate.toIso8601String()}',
+            );
           }
 
           id++;
