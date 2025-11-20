@@ -1,4 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Permiso necesario para acceso a Internet en APKs release/debug -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="my_porki"
         android:name="${applicationName}"

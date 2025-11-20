@@ -1,7 +1,9 @@
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    // Firebase plugin
     id("com.google.gms.google-services")
-    id("kotlin-android")
+    // Flutter plugin (siempre al final)
     id("dev.flutter.flutter-gradle-plugin")
 }
 
@@ -11,23 +13,23 @@ android {
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_1_8
-        targetCompatibility = JavaVersion.VERSION_1_8
-        // 👇 CORRECCIÓN: Usar la propiedad correcta para Kotlin DSL
-        isCoreLibraryDesugaringEnabled = true
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+        isCoreLibraryDesugaringEnabled = true  // 🔥 FIX para notificaciones
     }
 
     kotlinOptions {
-        jvmTarget = "1.8"
+        jvmTarget = JavaVersion.VERSION_11.toString()
     }
 
     defaultConfig {
         applicationId = "com.example.my_porki"
+
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
+
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        multiDexEnabled = true
     }
 
     buildTypes {
@@ -42,10 +44,15 @@ flutter {
 }
 
 dependencies {
-    // 👇 DEPENDENCIA CORREGIDA para Kotlin DSL
-    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.4")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib")
+
+    // 🔥 Firebase
+    implementation(platform("com.google.firebase:firebase-bom:32.7.0"))
+    implementation("com.google.firebase:firebase-analytics")
+    implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-auth")
+
+    // 🔔 Desugaring requerido por flutter_local_notifications
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
 }
 
-tasks.withType<JavaCompile>().configureEach {
-    options.compilerArgs.add("-Xlint:deprecation")
-}
