@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:hive/hive.dart';
+import 'package:my_porki/backend/services/sow_service.dart';
 
 class NotificacionesScreen extends StatefulWidget {
   const NotificacionesScreen({super.key});
@@ -20,20 +20,17 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
 
   Future<void> _cargarNotificaciones() async {
     try {
-      final box = await Hive.openBox('porki_data');
-      final allData = box.values.toList();
-      final cerdas = allData
-          .where((data) => data is Map && data['type'] == 'sow')
-          .cast<Map<String, dynamic>>()
-          .toList();
+      // CORREGIDO: Usar SowService.obtenerCerdas() en lugar de acceder directamente a Hive
+      final cerdas = await SowService.obtenerCerdas();
 
       final partosProximos = <Map<String, dynamic>>[];
       final ahora = DateTime.now();
 
       for (var cerda in cerdas) {
-        if (cerda['fecha_parto_calculado'] != null) {
+        final fechaPartoStr = cerda['fecha_parto_calculado'];
+        if (fechaPartoStr != null) {
           try {
-            final fechaParto = DateTime.parse(cerda['fecha_parto_calculado']);
+            final fechaParto = DateTime.parse(fechaPartoStr.toString());
             final diasRestantes = fechaParto.difference(ahora).inDays;
 
             if (diasRestantes >= 0 && diasRestantes <= 7) {
@@ -64,6 +61,8 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
         _notificaciones = partosProximos;
         _isLoading = false;
       });
+      
+      print('🔔 Notificaciones cargadas: ${partosProximos.length} partos próximos');
     } catch (e) {
       print('❌ Error cargando notificaciones: $e');
       setState(() {
@@ -106,7 +105,7 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
         ],
       ),
       body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
+          ? const Center(child: CircularProgressIndicator(color: Colors.pink))
           : _notificaciones.isEmpty
           ? const Center(
               child: Column(
@@ -165,9 +164,9 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
                             color: Colors.grey,
                           ),
                         ),
-                        if (cerda['identificacion'] != null)
+                        if (cerda['id'] != null)
                           Text(
-                            'ID: ${cerda['identificacion']}',
+                            'ID: ${cerda['id']}',
                             style: const TextStyle(
                               fontSize: 12,
                               color: Colors.grey,

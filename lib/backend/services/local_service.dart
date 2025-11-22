@@ -1,264 +1,262 @@
 import 'package:hive/hive.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
+import 'connectivity_service.dart';
 
 class LocalService {
-  static const String _mainBox = 'porki_data';
-  static const String _usersBox = 'porki_users';
-  static const String _syncBox = 'porki_sync';
+  // Boxes
+  static const String _mainBox = 'porki_data';     // Cerdas, partos, vacunas, etc.
+  static const String _usersBox = 'porki_users';   // Usuario actual
+  static const String _syncBox = 'porki_sync';     // Acciones pendientes (offline)
 
-  /// Inicializar el servicio local
+  static final ConnectivityService _connectivity = ConnectivityService();
+
+  /// --------------------------------------------------------------------------
+  /// 🔵 INICIALIZACIÓN
+  /// --------------------------------------------------------------------------
   static Future<void> initialize() async {
     await Hive.openBox(_mainBox);
     await Hive.openBox(_usersBox);
     await Hive.openBox(_syncBox);
-    print('✅ LocalService inicializado');
+    print('✅ LocalService inicializado correctamente');
   }
 
-  /// GUARDAR DATOS LOCALMENTE
-  static Future<void> saveData({
-    required String key,
-    required dynamic value,
-    String boxName = 'porki_data',
-  }) async {
+  /// --------------------------------------------------------------------------
+  /// 🔵 MÉTODOS GENERALES DE HIVE
+  /// --------------------------------------------------------------------------
+  static Future<Box> _openBox(String box) async =>
+      Hive.isBoxOpen(box) ? Hive.box(box) : await Hive.openBox(box);
+
+  static Future<void> _safePut(Box box, dynamic key, dynamic value) async {
     try {
-      final box = await Hive.openBox(boxName);
       await box.put(key, value);
-      print('✅ Dato guardado localmente: $key');
     } catch (e) {
-      print('❌ Error guardando dato local: $e');
+      print("❌ Error guardando en hive: $e");
       rethrow;
     }
   }
 
-  /// OBTENER DATOS LOCALES
+  /// Guardar. Si key es null intenta usar value['id'], si tampoco existe genera 'auto_<timestamp>'.
+  /// Devuelve la clave real usada en el box (puede ser String o int).
+  static Future<dynamic> saveData({
+    dynamic key,
+    required dynamic value,
+    String boxName = _mainBox,
+  }) async {
+    final box = await _openBox(boxName);
+
+    dynamic useKey = key;
+    try {
+      // si no nos pasaron key, preferimos usar value['id']
+      if (useKey == null && value is Map && value.containsKey('id')) {
+        useKey = value['id'];
+      }
+
+      // si sigue nulo, generamos una key única
+      if (useKey == null) {
+        useKey = 'auto_${DateTime.now().millisecondsSinceEpoch}';
+      }
+
+      await _safePut(box, useKey, value);
+      print('💾 Guardado en $boxName → $useKey');
+      return useKey;
+    } catch (e) {
+      print('❌ saveData error: $e');
+      rethrow;
+    }
+  }
+
+  /// Obtener: intenta key directo (clave del box), si no encuentra busca un elemento cuyo ['id'] == key - CORREGIDO
   static Future<dynamic> getData({
-    required String key,
-    String boxName = 'porki_data',
+    required dynamic key,
+    String boxName = _mainBox,
     dynamic defaultValue,
   }) async {
-    try {
-      final box = await Hive.openBox(boxName);
-      return box.get(key, defaultValue: defaultValue);
-    } catch (e) {
-      print('❌ Error obteniendo dato local: $e');
-      return defaultValue;
+    final box = await _openBox(boxName);
+
+    // intento directo
+    if (box.containsKey(key)) {
+      final value = box.get(key, defaultValue: defaultValue);
+      // CORRECCIÓN: Asegurar que los Map tengan claves String
+      if (value is Map) {
+        final convertedMap = <String, dynamic>{};
+        value.forEach((k, v) => convertedMap[k.toString()] = v);
+        return convertedMap;
+      }
+      return value;
     }
+
+    // intento buscar por id dentro de los valores
+    for (var bKey in box.keys) {
+      final item = box.get(bKey);
+      if (item is Map) {
+        // CORRECCIÓN: Convertir claves a String para la comparación
+        final convertedItem = <String, dynamic>{};
+        item.forEach((k, v) => convertedItem[k.toString()] = v);
+        
+        if (convertedItem['id'] == key) {
+          return convertedItem;
+        }
+      }
+    }
+
+    return defaultValue;
   }
 
-  /// ELIMINAR DATO LOCAL
+  /// Eliminar: acepta tanto la clave real del box como el 'id' dentro del objeto.
   static Future<void> deleteData({
-    required String key,
-    String boxName = 'porki_data',
+    required dynamic key,
+    String boxName = _mainBox,
   }) async {
-    try {
-      final box = await Hive.openBox(boxName);
+    final box = await _openBox(boxName);
+
+    // si existe como clave directa lo borramos
+    if (box.containsKey(key)) {
       await box.delete(key);
-      print('✅ Dato eliminado localmente: $key');
-    } catch (e) {
-      print('❌ Error eliminando dato local: $e');
-      rethrow;
+      print('🗑️ Eliminado de $boxName → $key (clave directa)');
+      return;
     }
+
+    // si no, buscamos el elemento cuyo ['id'] == key y borramos esa clave real
+    for (var bKey in box.keys.toList()) {
+      final item = box.get(bKey);
+      if (item is Map && item['id'] == key) {
+        await box.delete(bKey);
+        print('🗑️ Eliminado de $boxName → $bKey (encontrado por id: $key)');
+        return;
+      }
+    }
+
+    print('⚠️ deleteData: no se encontró clave ni id "$key" en $boxName');
   }
 
-  /// OBTENER TODOS LOS DATOS DE UNA BOX
-  static Future<List<dynamic>> getAllData({
-    String boxName = 'porki_data',
-  }) async {
-    try {
-      final box = await Hive.openBox(boxName);
-      return box.values.toList();
-    } catch (e) {
-      print('❌ Error obteniendo todos los datos: $e');
-      return [];
+  /// Listar todo: devuelve la lista de valores (clonado si es Map) - CORREGIDO
+  static Future<List<dynamic>> getAllData({String boxName = _mainBox}) async {
+    final box = await _openBox(boxName);
+    final out = <dynamic>[];
+    
+    for (var v in box.values) {
+      if (v is Map) {
+        // CORRECCIÓN: Preservar todas las claves, no solo las String
+        final clonedMap = <String, dynamic>{};
+        v.forEach((key, value) {
+          clonedMap[key.toString()] = value;
+        });
+        out.add(clonedMap);
+      } else {
+        out.add(v);
+      }
     }
+    
+    print('📊 DEBUG: getAllData retornando ${out.length} elementos');
+    return out;
   }
 
-  /// GUARDAR USUARIO LOCALMENTE
+  /// --------------------------------------------------------------------------
+  /// 🔵 USUARIOS LOCALES
+  /// --------------------------------------------------------------------------
   static Future<void> saveUser(Map<String, dynamic> userData) async {
-    try {
-      final box = await Hive.openBox(_usersBox);
-      await box.put('current_user', userData);
-      print('✅ Usuario guardado localmente');
-    } catch (e) {
-      print('❌ Error guardando usuario local: $e');
-      rethrow;
-    }
+    final box = await _openBox(_usersBox);
+    await box.put('current_user', userData);
+    print('👤 Usuario guardado localmente');
   }
 
-  /// OBTENER USUARIO LOCAL
   static Future<Map<String, dynamic>?> getCurrentUser() async {
-    try {
-      final box = await Hive.openBox(_usersBox);
-      final user = box.get('current_user');
-      return user is Map ? Map<String, dynamic>.from(user) : null;
-    } catch (e) {
-      print('❌ Error obteniendo usuario local: $e');
-      return null;
-    }
+    final box = await _openBox(_usersBox);
+    final user = box.get('current_user');
+    return user is Map ? Map<String, dynamic>.from(user) : null;
   }
 
-  /// ELIMINAR USUARIO LOCAL (logout)
   static Future<void> clearUser() async {
-    try {
-      final box = await Hive.openBox(_usersBox);
-      await box.delete('current_user');
-      print('✅ Usuario eliminado localmente');
-    } catch (e) {
-      print('❌ Error eliminando usuario local: $e');
-      rethrow;
-    }
+    final box = await _openBox(_usersBox);
+    await box.delete('current_user');
+    print('👤 Usuario eliminado');
   }
 
-  /// GUARDAR ESTADO DE SINCRONIZACIÓN
-  static Future<void> saveSyncStatus({
-    required String entityType,
-    required DateTime lastSync,
-    required int syncedItems,
+  /// --------------------------------------------------------------------------
+  /// 🔵 SINCRONIZACIÓN (OFFLINE → FIRESTORE)
+  /// --------------------------------------------------------------------------
+  /// Guardar registro pendiente de sincronización
+  static Future<void> savePendingSync({
+    required String action,      // create, update, delete
+    required String entityType,  // sow, parto, vacuna…
+    required Map<String, dynamic> data,
   }) async {
-    try {
-      final box = await Hive.openBox(_syncBox);
-      await box.put('${entityType}_last_sync', {
-        'lastSync': lastSync.toIso8601String(),
-        'syncedItems': syncedItems,
-        'entityType': entityType,
-      });
-      print('✅ Estado de sync guardado: $entityType');
-    } catch (e) {
-      print('❌ Error guardando estado de sync: $e');
+    final box = await _openBox(_syncBox);
+
+    final pendingKey = "pending_${DateTime.now().millisecondsSinceEpoch}";
+
+    await box.put(pendingKey, {
+      "pendingKey": pendingKey,
+      "action": action,
+      "entityType": entityType,
+      "data": data,
+      "timestamp": DateTime.now().toIso8601String(),
+    });
+
+    print("📌 Guardado para sincronizar: [$entityType] $action ($pendingKey)");
+  }
+
+  /// Obtener registros pendientes
+  static Future<List<Map<String, dynamic>>> getPendingSync() async {
+    final box = await _openBox(_syncBox);
+    final list = box.values
+        .where((e) => e is Map && e['pendingKey'] != null)
+        .cast<Map<String, dynamic>>()
+        .toList();
+
+    list.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
+    return List<Map<String, dynamic>>.from(list);
+  }
+
+  /// Eliminar un registro ya sincronizado
+  static Future<void> removePendingSync(String pendingKey) async {
+    final box = await _openBox(_syncBox);
+    if (box.containsKey(pendingKey)) {
+      await box.delete(pendingKey);
+      print("✔️ Eliminado pendiente → $pendingKey");
+    } else {
+      print("⚠️ removePendingSync: no existe $pendingKey");
     }
   }
 
-  /// OBTENER ESTADO DE SINCRONIZACIÓN
-  static Future<Map<String, dynamic>?> getSyncStatus(String entityType) async {
-    try {
-      final box = await Hive.openBox(_syncBox);
-      final status = box.get('${entityType}_last_sync');
-      return status is Map ? Map<String, dynamic>.from(status) : null;
-    } catch (e) {
-      print('❌ Error obteniendo estado de sync: $e');
-      return null;
-    }
+  /// --------------------------------------------------------------------------
+  /// 🔵 ESTADÍSTICAS
+  /// --------------------------------------------------------------------------
+  static Future<Map<String, dynamic>> getStorageStats() async {
+    final main = await _openBox(_mainBox);
+    final users = await _openBox(_usersBox);
+    final sync = await _openBox(_syncBox);
+
+    final totalCerdas = main.values.where((e) =>
+        e is Map && (e['type'] == 'sow' || e['type'] == 'cerda' || e['id'] != null)).length;
+
+    return {
+      "total_cerdas": totalCerdas,
+      "total_usuarios": users.length,
+      "pendientes_sync": sync.values.where((e) => e is Map && e['pendingKey'] != null).length,
+    };
   }
 
-  /// VERIFICAR CONEXIÓN A INTERNET
+  /// --------------------------------------------------------------------------
+  /// 🔵 INTERNET
+  /// --------------------------------------------------------------------------
   static Future<bool> checkConnectivity() async {
     try {
-      final connectivity = Connectivity();
-      final result = await connectivity.checkConnectivity();
-
-      return result != ConnectivityResult.none;
-    } catch (e) {
-      print('❌ Error verificando conexión: $e');
+      return await _connectivity.checkConnection();
+    } catch (_) {
       return false;
     }
   }
 
-  /// ESCUCHAR CAMBIOS DE CONEXIÓN
-  static Stream<bool> get connectivityStream {
-    return Connectivity().onConnectivityChanged.map((result) {
-      return result != ConnectivityResult.none;
-    });
-  }
+  static Stream<bool> get connectivityStream => _connectivity.connectionStream;
 
-  /// GUARDAR DATOS PARA SINCRONIZACIÓN PENDIENTE
-  static Future<void> savePendingSync({
-    required String action, // 'create', 'update', 'delete'
-    required String entityType, // 'sow', 'vaccine', etc.
-    required Map<String, dynamic> data,
-  }) async {
-    try {
-      final box = await Hive.openBox(_syncBox);
-      final pendingKey = 'pending_${DateTime.now().millisecondsSinceEpoch}';
-
-      await box.put(pendingKey, {
-        'action': action,
-        'entityType': entityType,
-        'data': data,
-        'timestamp': DateTime.now().toIso8601String(),
-        'pendingKey': pendingKey,
-      });
-
-      print('✅ Sync pendiente guardado: $entityType - $action');
-    } catch (e) {
-      print('❌ Error guardando sync pendiente: $e');
-    }
-  }
-
-  /// OBTENER DATOS PENDIENTES DE SINCRONIZACIÓN
-  static Future<List<Map<String, dynamic>>> getPendingSync() async {
-    try {
-      final box = await Hive.openBox(_syncBox);
-      final allData = box.values.toList();
-
-      final pendingSyncs = allData
-          .where(
-            (data) =>
-                data is Map &&
-                data['pendingKey'] != null &&
-                data['pendingKey'].toString().startsWith('pending_'),
-          )
-          .cast<Map<String, dynamic>>()
-          .toList();
-
-      // Ordenar por timestamp (más antiguos primero)
-      pendingSyncs.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
-
-      return pendingSyncs;
-    } catch (e) {
-      print('❌ Error obteniendo sync pendientes: $e');
-      return [];
-    }
-  }
-
-  /// ELIMINAR SINCRONIZACIÓN PENDIENTE
-  static Future<void> removePendingSync(String pendingKey) async {
-    try {
-      final box = await Hive.openBox(_syncBox);
-      await box.delete(pendingKey);
-      print('✅ Sync pendiente eliminado: $pendingKey');
-    } catch (e) {
-      print('❌ Error eliminando sync pendiente: $e');
-    }
-  }
-
-  /// LIMPIAR TODOS LOS DATOS LOCALES (para testing o reset)
+  /// --------------------------------------------------------------------------
+  /// 🔵 BORRAR TODO (para reset o testing)
+  /// --------------------------------------------------------------------------
   static Future<void> clearAllData() async {
-    try {
-      final mainBox = await Hive.openBox(_mainBox);
-      final usersBox = await Hive.openBox(_usersBox);
-      final syncBox = await Hive.openBox(_syncBox);
+    await (await _openBox(_mainBox)).clear();
+    await (await _openBox(_usersBox)).clear();
+    await (await _openBox(_syncBox)).clear();
 
-      await mainBox.clear();
-      await usersBox.clear();
-      await syncBox.clear();
-
-      print('✅ Todos los datos locales eliminados');
-    } catch (e) {
-      print('❌ Error eliminando datos locales: $e');
-      rethrow;
-    }
-  }
-
-  /// OBTENER ESTADÍSTICAS DE ALMACENAMIENTO
-  static Future<Map<String, dynamic>> getStorageStats() async {
-    try {
-      final mainBox = await Hive.openBox(_mainBox);
-      final usersBox = await Hive.openBox(_usersBox);
-      final syncBox = await Hive.openBox(_syncBox);
-
-      return {
-        'total_cerdas': mainBox.values
-            .where((data) => data is Map && data['type'] == 'sow')
-            .length,
-        'total_usuarios': usersBox.length,
-        'sync_pendientes': syncBox.values
-            .where((data) => data is Map && data['pendingKey'] != null)
-            .length,
-        'ultima_sincronizacion': await getSyncStatus('sows'),
-      };
-    } catch (e) {
-      print('❌ Error obteniendo estadísticas: $e');
-      return {};
-    }
+    print('🧨 TODO limpiado localmente (Hive reset)');
   }
 }

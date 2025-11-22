@@ -1,14 +1,15 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:hive/hive.dart';
-import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:developer' as developer;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+import 'connectivity_service.dart';
 
 class AuthService {
   static final FirebaseAuth _auth = FirebaseAuth.instance;
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static final ConnectivityService _connectivityService = ConnectivityService();
 
   /// ✅ Verificar si el usuario está logueado
   static Future<bool> isLoggedIn() async {
@@ -18,16 +19,13 @@ class AuthService {
       if (currentUser != null) {
         return true;
       }
-
+      
       // Verificar si hay usuario guardado localmente
       final box = await Hive.openBox('porki_users');
       final localUser = box.get('current_user');
       return localUser != null;
     } catch (e) {
-      developer.log(
-        '❌ Error verificando autenticación: $e',
-        name: 'my_porki.auth',
-      );
+      developer.log('❌ Error verificando autenticación: $e', name: 'my_porki.auth');
       return false;
     }
   }
@@ -39,9 +37,7 @@ class AuthService {
   }) async {
     try {
       // Verificar conexión a internet
-      final connectivity = Connectivity();
-      final result = await connectivity.checkConnectivity();
-      final tieneInternet = result != ConnectivityResult.none;
+      final tieneInternet = await _connectivityService.checkConnection();
 
       if (tieneInternet) {
         // ✅ CON INTERNET: Usar Firebase
@@ -102,10 +98,7 @@ class AuthService {
       // Guardar usuario localmente para login offline futuro
       await _saveUserLocally(userDataForHive, user.uid);
 
-      developer.log(
-        '✅ Usuario logueado con Firebase: ${userData['username']}',
-        name: 'my_porki.auth',
-      );
+      developer.log('✅ Usuario logueado con Firebase: ${userData['username']}', name: 'my_porki.auth');
       return userDataForHive;
     } catch (e) {
       developer.log('❌ Error en login Firebase: $e', name: 'my_porki.auth');
@@ -132,8 +125,7 @@ class AuthService {
           final storedPassword = user['password_hash']?.toString() ?? '';
 
           // Verificar si coincide email o username
-          if ((email == input || username == input) &&
-              storedPassword.isNotEmpty) {
+          if ((email == input || username == input) && storedPassword.isNotEmpty) {
             // Verificar contraseña (simple comparación SHA256)
             final passwordHash = _hashPassword(password);
             if (storedPassword == passwordHash) {
@@ -152,10 +144,7 @@ class AuthService {
       foundUser['lastLogin'] = DateTime.now().millisecondsSinceEpoch;
       await box.put('current_user', foundUser);
 
-      developer.log(
-        '✅ Usuario logueado OFFLINE: ${foundUser['username']}',
-        name: 'my_porki.auth',
-      );
+      developer.log('✅ Usuario logueado OFFLINE: ${foundUser['username']}', name: 'my_porki.auth');
       return foundUser;
     } catch (e) {
       developer.log('❌ Error en login offline: $e', name: 'my_porki.auth');
@@ -209,9 +198,7 @@ class AuthService {
       // Guardar localmente con hash de contraseña
       final userDataWithPassword = {
         ...userData,
-        'password_hash': _hashPassword(
-          password,
-        ), // Guardar hash para login offline
+        'password_hash': _hashPassword(password), // Guardar hash para login offline
       };
       await _saveUserLocally(userDataWithPassword, cred.user!.uid);
 
@@ -223,33 +210,27 @@ class AuthService {
   }
 
   /// ✅ Guardar usuario localmente en Hive
-  static Future<void> _saveUserLocally(
-    Map<String, dynamic> userData,
-    String uid,
-  ) async {
+  static Future<void> _saveUserLocally(Map<String, dynamic> userData, String uid) async {
     try {
       final box = await Hive.openBox('porki_users');
-
+      
       final userMap = {
         'id': uid,
         'username': userData['username'] ?? '',
         'email': userData['email'] ?? '',
         'role': userData['role'] ?? 'colaborador',
-        'createdAt': userData['createdAt'] != null
+        'createdAt': userData['createdAt'] != null 
             ? (userData['createdAt'] as Timestamp).millisecondsSinceEpoch
             : DateTime.now().millisecondsSinceEpoch,
         'isActive': userData['isActive'] ?? true,
         'synced': true,
         'lastLogin': DateTime.now().millisecondsSinceEpoch,
       };
-
+      
       await box.put('current_user', userMap);
       developer.log('✅ Usuario guardado localmente', name: 'my_porki.auth');
     } catch (e) {
-      developer.log(
-        '❌ Error guardando usuario local: $e',
-        name: 'my_porki.auth',
-      );
+      developer.log('❌ Error guardando usuario local: $e', name: 'my_porki.auth');
       throw Exception('Error guardando datos locales');
     }
   }
@@ -273,7 +254,7 @@ class AuthService {
       // Primero buscar localmente
       final box = await Hive.openBox('porki_users');
       final localUser = box.get('current_user');
-
+      
       if (localUser != null) {
         developer.log('✅ Usuario obtenido localmente', name: 'my_porki.auth');
         return Map<String, dynamic>.from(localUser);
@@ -286,10 +267,7 @@ class AuthService {
         if (doc.exists) {
           final userData = doc.data()!;
           await _saveUserLocally(userData, user.uid);
-          developer.log(
-            '✅ Usuario obtenido de Firebase',
-            name: 'my_porki.auth',
-          );
+          developer.log('✅ Usuario obtenido de Firebase', name: 'my_porki.auth');
           return userData;
         }
       }
@@ -311,10 +289,7 @@ class AuthService {
         developer.log('✅ Email de verificación enviado', name: 'my_porki.auth');
       }
     } catch (e) {
-      developer.log(
-        '❌ Error enviando email de verificación: $e',
-        name: 'my_porki.auth',
-      );
+      developer.log('❌ Error enviando email de verificación: $e', name: 'my_porki.auth');
       throw Exception('Error enviando email de verificación');
     }
   }
@@ -323,15 +298,9 @@ class AuthService {
   static Future<void> resetPassword(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
-      developer.log(
-        '✅ Email de restablecimiento enviado',
-        name: 'my_porki.auth',
-      );
+      developer.log('✅ Email de restablecimiento enviado', name: 'my_porki.auth');
     } catch (e) {
-      developer.log(
-        '❌ Error restableciendo contraseña: $e',
-        name: 'my_porki.auth',
-      );
+      developer.log('❌ Error restableciendo contraseña: $e', name: 'my_porki.auth');
       throw Exception('Error restableciendo contraseña');
     }
   }
@@ -346,7 +315,7 @@ class AuthService {
       if (user != null) {
         await user.updateDisplayName(displayName);
         await user.updatePhotoURL(photoURL);
-
+        
         // Actualizar también en Firestore
         await _firestore.collection('users').doc(user.uid).update({
           if (displayName != null) 'displayName': displayName,
@@ -389,18 +358,15 @@ class AuthService {
       if (user != null) {
         // Eliminar de Firestore
         await _firestore.collection('users').doc(user.uid).delete();
-
+        
         // Eliminar localmente
         final box = await Hive.openBox('porki_users');
         await box.delete('current_user');
-
+        
         // Eliminar cuenta de Firebase Auth
         await user.delete();
-
-        developer.log(
-          '✅ Cuenta eliminada correctamente',
-          name: 'my_porki.auth',
-        );
+        
+        developer.log('✅ Cuenta eliminada correctamente', name: 'my_porki.auth');
       }
     } catch (e) {
       developer.log('❌ Error eliminando cuenta: $e', name: 'my_porki.auth');
@@ -443,10 +409,7 @@ class AuthService {
         }
       }
     } catch (e) {
-      developer.log(
-        '❌ Error actualizando último acceso: $e',
-        name: 'my_porki.auth',
-      );
+      developer.log('❌ Error actualizando último acceso: $e', name: 'my_porki.auth');
     }
   }
 }
