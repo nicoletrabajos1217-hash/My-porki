@@ -294,7 +294,60 @@ class AuthService {
     }
   }
 
-  /// ✅ Restablecer contraseña
+  /// ✅ RECUPERACIÓN DE CONTRASEÑA - NUEVO MÉTODO
+  static Future<String?> sendPasswordResetEmail(String email) async {
+    try {
+      // Verificar conexión a internet primero
+      final tieneInternet = await _connectivityService.checkConnection();
+      if (!tieneInternet) {
+        return 'Se requiere conexión a internet para recuperar la contraseña';
+      }
+
+      // Buscar si el email existe en la base de datos
+      final emailQuery = await _firestore
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+
+      if (emailQuery.docs.isEmpty) {
+        return 'No existe una cuenta con este correo electrónico';
+      }
+
+      // Enviar email de recuperación
+      await _auth.sendPasswordResetEmail(email: email);
+      
+      developer.log('✅ Email de recuperación enviado a: $email', name: 'my_porki.auth');
+      return null; // Éxito
+      
+    } on FirebaseAuthException catch (e) {
+      developer.log('❌ Error Firebase en recuperación: ${e.code}', name: 'my_porki.auth');
+      return _handlePasswordResetError(e);
+    } catch (e) {
+      developer.log('❌ Error inesperado en recuperación: $e', name: 'my_porki.auth');
+      return 'Error inesperado: $e';
+    }
+  }
+
+  /// ✅ Manejar errores específicos de recuperación de contraseña
+  static String _handlePasswordResetError(FirebaseAuthException e) {
+    switch (e.code) {
+      case 'user-not-found':
+        return 'No existe una cuenta con este correo electrónico';
+      case 'invalid-email':
+        return 'El correo electrónico no es válido';
+      case 'network-request-failed':
+        return 'Error de conexión a internet. Verifica tu conexión';
+      case 'too-many-requests':
+        return 'Demasiados intentos. Por favor, espera unos minutos antes de intentar nuevamente';
+      case 'operation-not-allowed':
+        return 'La recuperación de contraseña no está habilitada para esta aplicación';
+      default:
+        return 'Error al enviar el email de recuperación: ${e.message}';
+    }
+  }
+
+  /// ✅ Restablecer contraseña (método existente - manteniendo compatibilidad)
   static Future<void> resetPassword(String email) async {
     try {
       await _auth.sendPasswordResetEmail(email: email);
@@ -410,6 +463,21 @@ class AuthService {
       }
     } catch (e) {
       developer.log('❌ Error actualizando último acceso: $e', name: 'my_porki.auth');
+    }
+  }
+
+  /// ✅ Verificar si un email existe en el sistema
+  static Future<bool> checkEmailExists(String email) async {
+    try {
+      final query = await _firestore
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+      return query.docs.isNotEmpty;
+    } catch (e) {
+      developer.log('❌ Error verificando email: $e', name: 'my_porki.auth');
+      return false;
     }
   }
 }

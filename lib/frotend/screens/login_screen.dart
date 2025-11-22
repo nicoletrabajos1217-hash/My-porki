@@ -3,6 +3,7 @@ import 'package:hive/hive.dart';
 import 'package:my_porki/backend/services/auth_service.dart';
 import 'register_screen.dart';
 import 'home_screen.dart';
+import 'forgot_password_screen.dart'; // ✅ Agregar import
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -183,7 +184,31 @@ class _LoginScreenState extends State<LoginScreen> {
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _login(),
                   ),
-                  const SizedBox(height: 30),
+                  
+                  // ✅ NUEVO: Enlace para recuperar contraseña
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (context) => const ForgotPasswordScreen(),
+                          ),
+                        );
+                      },
+                      child: const Text(
+                        '¿Olvidaste tu contraseña?',
+                        style: TextStyle(
+                          color: Colors.blue,
+                          fontSize: 14,
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
 
                   // 🔹 Botón de login o loading
                   _isLoading
@@ -281,6 +306,16 @@ class _LoginScreenState extends State<LoginScreen> {
                                     style: TextStyle(
                                       fontSize: 14,
                                       color: Colors.grey,
+                                    ),
+                                  ),
+                                  SizedBox(height: 4),
+                                  Text(
+                                    'Si olvidas tu contraseña, puedes recuperarla con tu correo.',
+                                    textAlign: TextAlign.center,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: Colors.grey,
+                                      fontStyle: FontStyle.italic,
                                     ),
                                   ),
                                 ],

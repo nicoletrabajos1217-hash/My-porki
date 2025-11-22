@@ -566,7 +566,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
                       onPressed: _agregarVacuna,
                       icon: const Icon(Icons.add, size: 18),
                       label: const Text("Agregar"),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.purple)),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color.fromARGB(255, 212, 86, 191))),
                 ],
               ),
               const SizedBox(height: 12),
