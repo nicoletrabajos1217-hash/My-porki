@@ -58,7 +58,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
     try {
       print('📦 Cargando lista de cerdas...');
       
-      // CORREGIDO: Usar SowService.obtenerCerdas() en lugar de acceder directamente a Hive
+      // Usar SowService.obtenerCerdas() en lugar de acceder directamente a Hive
       final cerdas = await SowService.obtenerCerdas();
       
       print('✅ Cerdas cargadas desde servicio: ${cerdas.length}');
@@ -76,7 +76,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
 
   Future<void> _cargarCerdaIndividual() async {
     try {
-      // CORRECCIÓN: Usar 'porki_data' en lugar de 'cerdas'
+      // Usar 'porki_data' en lugar de 'cerdas'
       final box = await Hive.openBox('porki_data');
       
       print('🔍 Buscando cerda con ID: ${widget.cerdaId}');
@@ -93,7 +93,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
         }
       }
 
-      // CORRECCIÓN: Usar colección 'sows' en lugar de 'cerdas'
+      // Usar colección 'sows' en lugar de 'cerdas'
       Map<String, dynamic>? firestoreCerda;
       try {
         final doc = await _firestore.collection('sows').doc(widget.cerdaId).get();
@@ -157,14 +157,16 @@ class _CerdaScreenState extends State<CerdaScreen> {
 
       print('💾 Guardando cerda: $id');
 
-      // CORRECCIÓN: Guardar en 'porki_data' en lugar de 'cerdas'
+      // Guardar en 'porki_data' en lugar de 'cerdas'
       final box = await Hive.openBox('porki_data');
       final hiveKey = _cerda!['hiveKey'] ?? id;
+      
+      // FORZAR EL GUARDADO PARA NOTIFICAR CAMBIOS
       await box.put(hiveKey, _cerda);
       
-      print('✅ Guardado en Hive local');
+      print('✅ Guardado en Hive local - cambios notificados');
 
-      // CORRECCIÓN: Guardar en colección 'sows' en lugar de 'cerdas'
+      // Guardar en colección 'sows' en lugar de 'cerdas'
       try {
         await _firestore.collection('sows').doc(id).set(_cerda!, SetOptions(merge: true));
         
@@ -183,6 +185,9 @@ class _CerdaScreenState extends State<CerdaScreen> {
               content: Text("Cerda guardada correctamente 🐷"),
               backgroundColor: Colors.green),
         );
+        
+        // Opcional: Navegar back después de guardar exitosamente
+        // Navigator.pop(context);
       }
     } catch (e) {
       print('❌ Error al guardar: $e');
@@ -395,7 +400,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
                           context,
                           MaterialPageRoute(
                               builder: (_) => CerdaScreen(cerdaId: id)),
-                        ).then((_) => _cargarListaCerdas());
+                        ).then((_) {
+                          // Recargar lista cuando regreses de editar una cerda
+                          _cargarListaCerdas();
+                        });
                       },
                     ),
                   );

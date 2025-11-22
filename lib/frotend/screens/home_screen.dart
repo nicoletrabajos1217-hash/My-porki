@@ -232,6 +232,16 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  void _navegarACerdas() {
+    Navigator.push(
+      context, 
+      MaterialPageRoute(builder: (_) => const CerdaScreen())
+    ).then((_) {
+      // SOLUCIÓN: Recargar datos cuando regreses de CerdaScreen
+      _cargarDatos();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final username = widget.userData['username'] ?? 'Usuario';
@@ -392,10 +402,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('Ver Cerdas'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const CerdaScreen()),
-              );
+              _navegarACerdas(); // Usar el método corregido
             },
           ),
           ListTile(
@@ -463,8 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     MaterialPageRoute(builder: (_) => const AgregarCerdaScreen()));
               }),
               _buildActionCard(context, 'Ver Cerdas', Icons.pets, Colors.blue, () {
-                Navigator.push(
-                    context, MaterialPageRoute(builder: (_) => const CerdaScreen()));
+                _navegarACerdas(); // Usar el método corregido
               }),
               _buildActionCard(context, 'Historial', Icons.history, Colors.orange, () {
                 Navigator.push(
@@ -484,109 +490,103 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildResumenGeneral() {
-    return FutureBuilder(
-      future: Hive.openBox('porki_data'),
-      builder: (context, snapshot) {
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator(color: Colors.pink));
-        }
-
-        final box = snapshot.data as Box;
-
-        return ValueListenableBuilder<Box>(
-          valueListenable: box.listenable(),
-          builder: (context, listenedBox, _) {
-            final cerdas = <Map<String, dynamic>>[];
-
-            for (var data in listenedBox.values) {
-              if (data is Map && data['type'] == 'sow') {
-                final cerda = <String, dynamic>{};
-                data.forEach((k, v) => cerda[k.toString()] = v);
-                cerdas.add(cerda);
-              }
-            }
-
-            int totalCerdas = cerdas.length;
-            int prenadas = cerdas.where((c) {
-              final estado = (c['estado'] ?? c['estado_cerda'] ?? '').toString().toLowerCase();
-              return estado.contains('pre') || estado.contains('gest');
-            }).length;
-
-            int totalLechones = 0;
-            int partosHoy = 0;
-            int partosPendientes = 0;
-            int vacunasHoy = 0;
-            final ahora = DateTime.now();
-
-            for (var cerda in cerdas) {
-              totalLechones += ((cerda['lechones_nacidos'] ??
-                      cerda['numero_lechones'] ??
-                      0) as int? ?? 0);
-
-              final fechaParto = cerda['fecha_parto_calculado'] ??
-                  cerda['fechaPartoCalculado'] ??
-                  cerda['fecha_parto'];
-              final fecha = _parseFechaSafe(fechaParto);
-              if (fecha != null) {
-                if (fecha.year == ahora.year &&
-                    fecha.month == ahora.month &&
-                    fecha.day == ahora.day) {
-                  partosHoy++;
-                } else if (fecha.isAfter(ahora)) {
-                  partosPendientes++;
-                }
-              }
-
-              final vacunas = cerda['vacunas'];
-              if (vacunas is List) {
-                for (var vac in vacunas) {
-                  if (vac is Map) {
-                    final fVac = _parseFechaSafe(vac['fecha']);
-                    if (fVac != null &&
-                        fVac.year == ahora.year &&
-                        fVac.month == ahora.month &&
-                        fVac.day == ahora.day) {
-                      vacunasHoy++;
-                    }
-                  }
-                }
-              }
-            }
-
-            return Card(
-              elevation: 4,
-              child: Padding(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  children: [
-                    const Text('Resumen General',
-                        style: TextStyle(
-                            fontSize: 18, fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildInfoItem('Total Cerdas', totalCerdas.toString(), '🐖', totalCerdas),
-                        _buildInfoItem('Preñadas', prenadas.toString(), '🐷', prenadas),
-                        _buildInfoItem('Lechones', totalLechones.toString(), '🐽', totalLechones),
-                      ],
-                    ),
-                    const SizedBox(height: 12),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceAround,
-                      children: [
-                        _buildInfoItem('Partos Hoy', partosHoy.toString(), '📅', partosHoy),
-                        _buildInfoItem('Pendientes', partosPendientes.toString(), '⏰', partosPendientes),
-                        _buildInfoItem('Vacunas Hoy', vacunasHoy.toString(), '💉', vacunasHoy),
-                      ],
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        );
+    return ValueListenableBuilder<Box>(
+      valueListenable: Hive.box('porki_data').listenable(),
+      builder: (context, box, _) {
+        print('🔄 ValueListenableBuilder detectó cambios - reconstruyendo resumen');
+        return _buildResumenContent(box);
       },
+    );
+  }
+
+  Widget _buildResumenContent(Box box) {
+    final cerdas = <Map<String, dynamic>>[];
+
+    for (var data in box.values) {
+      if (data is Map && data['type'] == 'sow') {
+        final cerda = <String, dynamic>{};
+        data.forEach((k, v) => cerda[k.toString()] = v);
+        cerdas.add(cerda);
+      }
+    }
+
+    int totalCerdas = cerdas.length;
+    int prenadas = cerdas.where((c) {
+      final estado = (c['estado'] ?? c['estado_cerda'] ?? '').toString().toLowerCase();
+      return estado.contains('pre') || estado.contains('gest');
+    }).length;
+
+    int totalLechones = 0;
+    int partosHoy = 0;
+    int partosPendientes = 0;
+    int vacunasHoy = 0;
+    final ahora = DateTime.now();
+
+    for (var cerda in cerdas) {
+      totalLechones += ((cerda['lechones_nacidos'] ??
+              cerda['numero_lechones'] ??
+              0) as int? ?? 0);
+
+      final fechaParto = cerda['fecha_parto_calculado'] ??
+          cerda['fechaPartoCalculado'] ??
+          cerda['fecha_parto'];
+      final fecha = _parseFechaSafe(fechaParto);
+      if (fecha != null) {
+        if (fecha.year == ahora.year &&
+            fecha.month == ahora.month &&
+            fecha.day == ahora.day) {
+          partosHoy++;
+        } else if (fecha.isAfter(ahora)) {
+          partosPendientes++;
+        }
+      }
+
+      final vacunas = cerda['vacunas'];
+      if (vacunas is List) {
+        for (var vac in vacunas) {
+          if (vac is Map) {
+            final fVac = _parseFechaSafe(vac['fecha']);
+            if (fVac != null &&
+                fVac.year == ahora.year &&
+                fVac.month == ahora.month &&
+                fVac.day == ahora.day) {
+              vacunasHoy++;
+            }
+          }
+        }
+      }
+    }
+
+    return Card(
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Text('Resumen General',
+                style: TextStyle(
+                    fontSize: 18, fontWeight: FontWeight.bold)),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildInfoItem('Total Cerdas', totalCerdas.toString(), '🐖', totalCerdas),
+                _buildInfoItem('Preñadas', prenadas.toString(), '🐷', prenadas),
+                _buildInfoItem('Lechones', totalLechones.toString(), '🐽', totalLechones),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildInfoItem('Partos Hoy', partosHoy.toString(), '📅', partosHoy),
+                _buildInfoItem('Pendientes', partosPendientes.toString(), '⏰', partosPendientes),
+                _buildInfoItem('Vacunas Hoy', vacunasHoy.toString(), '💉', vacunasHoy),
+              ],
+            ),
+          ],
+        ),
+      ),
     );
   }
 

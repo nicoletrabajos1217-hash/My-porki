@@ -4,6 +4,7 @@ import 'package:hive/hive.dart';
 import 'dart:developer' as developer;
 import 'package:crypto/crypto.dart';
 import 'dart:convert';
+import 'dart:math';
 import 'connectivity_service.dart';
 
 class AuthService {
@@ -14,13 +15,11 @@ class AuthService {
   /// ✅ Verificar si el usuario está logueado
   static Future<bool> isLoggedIn() async {
     try {
-      // Verificar si hay usuario en Firebase Auth
       final currentUser = _auth.currentUser;
       if (currentUser != null) {
         return true;
       }
       
-      // Verificar si hay usuario guardado localmente
       final box = await Hive.openBox('porki_users');
       final localUser = box.get('current_user');
       return localUser != null;
@@ -36,14 +35,11 @@ class AuthService {
     required String password,
   }) async {
     try {
-      // Verificar conexión a internet
       final tieneInternet = await _connectivityService.checkConnection();
 
       if (tieneInternet) {
-        // ✅ CON INTERNET: Usar Firebase
         return await _loginWithFirebase(input, password);
       } else {
-        // ✅ SIN INTERNET: Usar Hive local
         return await _loginOffline(input, password);
       }
     } catch (e) {
@@ -61,7 +57,6 @@ class AuthService {
       User? user;
       String userEmail = input;
 
-      // Si el input no es un email, buscar username
       if (!input.contains('@')) {
         final query = await _firestore
             .collection('users')
@@ -76,7 +71,6 @@ class AuthService {
         userEmail = query.docs.first.data()['email'];
       }
 
-      // Iniciar sesión con Firebase Auth
       final credential = await _auth.signInWithEmailAndPassword(
         email: userEmail,
         password: password,
@@ -85,7 +79,6 @@ class AuthService {
 
       if (user == null) throw Exception('Error al iniciar sesión');
 
-      // Obtener datos del usuario de Firestore
       final doc = await _firestore.collection('users').doc(user.uid).get();
 
       if (!doc.exists) {
@@ -95,7 +88,6 @@ class AuthService {
       final userData = doc.data()!;
       final userDataForHive = Map<String, dynamic>.from(userData);
 
-      // Guardar usuario localmente para login offline futuro
       await _saveUserLocally(userDataForHive, user.uid);
 
       developer.log('✅ Usuario logueado con Firebase: ${userData['username']}', name: 'my_porki.auth');
@@ -113,8 +105,6 @@ class AuthService {
   ) async {
     try {
       final box = await Hive.openBox('porki_users');
-
-      // Buscar usuario en Hive por email o username
       Map<String, dynamic>? foundUser;
 
       for (var key in box.keys) {
@@ -124,9 +114,7 @@ class AuthService {
           final username = user['username']?.toString() ?? '';
           final storedPassword = user['password_hash']?.toString() ?? '';
 
-          // Verificar si coincide email o username
           if ((email == input || username == input) && storedPassword.isNotEmpty) {
-            // Verificar contraseña (simple comparación SHA256)
             final passwordHash = _hashPassword(password);
             if (storedPassword == passwordHash) {
               foundUser = Map<String, dynamic>.from(user);
@@ -140,7 +128,6 @@ class AuthService {
         throw Exception('Usuario o contraseña incorrectos (modo offline)');
       }
 
-      // Actualizar último login
       foundUser['lastLogin'] = DateTime.now().millisecondsSinceEpoch;
       await box.put('current_user', foundUser);
 
@@ -165,7 +152,6 @@ class AuthService {
     required String role,
   }) async {
     try {
-      // Verificar si el username ya existe
       final usernameQuery = await _firestore
           .collection('users')
           .where('username', isEqualTo: username)
@@ -176,13 +162,11 @@ class AuthService {
         throw Exception('El nombre de usuario ya está en uso');
       }
 
-      // Crear usuario en Firebase Auth
       final cred = await _auth.createUserWithEmailAndPassword(
         email: email,
         password: password,
       );
 
-      // Preparar datos del usuario
       final userData = {
         'username': username,
         'email': email,
@@ -192,13 +176,11 @@ class AuthService {
         'isActive': true,
       };
 
-      // Guardar en Firestore
       await _firestore.collection('users').doc(cred.user!.uid).set(userData);
 
-      // Guardar localmente con hash de contraseña
       final userDataWithPassword = {
         ...userData,
-        'password_hash': _hashPassword(password), // Guardar hash para login offline
+        'password_hash': _hashPassword(password),
       };
       await _saveUserLocally(userDataWithPassword, cred.user!.uid);
 
@@ -251,7 +233,6 @@ class AuthService {
   /// ✅ Obtener usuario actual
   static Future<Map<String, dynamic>?> getCurrentUser() async {
     try {
-      // Primero buscar localmente
       final box = await Hive.openBox('porki_users');
       final localUser = box.get('current_user');
       
@@ -260,7 +241,6 @@ class AuthService {
         return Map<String, dynamic>.from(localUser);
       }
 
-      // Si no hay local, buscar en Firebase
       final user = _auth.currentUser;
       if (user != null) {
         final doc = await _firestore.collection('users').doc(user.uid).get();
@@ -294,16 +274,22 @@ class AuthService {
     }
   }
 
-  /// ✅ RECUPERACIÓN DE CONTRASEÑA - NUEVO MÉTODO
-  static Future<String?> sendPasswordResetEmail(String email) async {
+  /// ✅ RECUPERACIÓN DE CONTRASEÑA - VERSIÓN CON AUTORREPARACIÓN
+  static Future<Map<String, dynamic>> sendPasswordResetEmail(String email) async {
     try {
-      // Verificar conexión a internet primero
+      developer.log('🔄 INICIANDO RECUPERACIÓN PARA: $email', name: 'my_porki.auth');
+      
+      // 1. Verificar conexión
       final tieneInternet = await _connectivityService.checkConnection();
       if (!tieneInternet) {
-        return 'Se requiere conexión a internet para recuperar la contraseña';
+        return {
+          'success': false,
+          'message': 'Se requiere conexión a internet para recuperar la contraseña'
+        };
       }
 
-      // Buscar si el email existe en la base de datos
+      // 2. Verificar en Firestore
+      developer.log('🔍 Buscando en Firestore: $email', name: 'my_porki.auth');
       final emailQuery = await _firestore
           .collection('users')
           .where('email', isEqualTo: email)
@@ -311,39 +297,145 @@ class AuthService {
           .get();
 
       if (emailQuery.docs.isEmpty) {
-        return 'No existe una cuenta con este correo electrónico';
+        developer.log('❌ NO encontrado en Firestore', name: 'my_porki.auth');
+        return {
+          'success': false,
+          'message': 'No existe una cuenta con este correo electrónico'
+        };
       }
 
-      // Enviar email de recuperación
-      await _auth.sendPasswordResetEmail(email: email);
+      final userData = emailQuery.docs.first.data();
+      final username = userData['username'] ?? 'Usuario';
+      developer.log('✅ Encontrado en Firestore: $username', name: 'my_porki.auth');
+
+      // 3. Intentar enviar email directamente
+      developer.log('📧 Intentando enviar email...', name: 'my_porki.auth');
       
-      developer.log('✅ Email de recuperación enviado a: $email', name: 'my_porki.auth');
-      return null; // Éxito
-      
-    } on FirebaseAuthException catch (e) {
-      developer.log('❌ Error Firebase en recuperación: ${e.code}', name: 'my_porki.auth');
-      return _handlePasswordResetError(e);
+      try {
+        await _auth.sendPasswordResetEmail(email: email);
+        developer.log('✅ EMAIL ENVIADO EXITOSAMENTE', name: 'my_porki.auth');
+        
+        return {
+          'success': true,
+          'message': 'Se ha enviado un enlace de recuperación a $email. Revisa tu bandeja de entrada y carpeta de spam.',
+          'email': email,
+          'username': username
+        };
+        
+      } on FirebaseAuthException catch (e) {
+        // 4. SI FALLA POR USER-NOT-FOUND -> REPARAR AUTOMÁTICAMENTE
+        if (e.code == 'user-not-found') {
+          developer.log('⚠️ USUARIO HUÉRFANO DETECTADO. REPARANDO AUTOMÁTICAMENTE...', name: 'my_porki.auth');
+          
+          final repairResult = await _autoRepairUser(email, userData);
+          
+          if (repairResult['success'] == true) {
+            developer.log('✅ USUARIO REPARADO. REINTENTANDO ENVÍO DE EMAIL...', name: 'my_porki.auth');
+            
+            // Reintentar enviar el email después de reparar
+            await _auth.sendPasswordResetEmail(email: email);
+            
+            return {
+              'success': true,
+              'message': '✅ Se ha enviado un enlace de recuperación a $email. (Usuario reparado automáticamente)',
+              'email': email,
+              'username': username,
+              'repaired': true
+            };
+          } else {
+            return {
+              'success': false,
+              'message': '❌ El usuario necesita ser reparado manualmente. Error: ${repairResult['message']}'
+            };
+          }
+        }
+        
+        // Para otros errores de Firebase
+        String errorMessage;
+        switch (e.code) {
+          case 'invalid-email':
+            errorMessage = 'El formato del email no es válido';
+            break;
+          case 'network-request-failed':
+            errorMessage = 'Error de conexión a internet';
+            break;
+          case 'too-many-requests':
+            errorMessage = 'Demasiados intentos. Espera unos minutos';
+            break;
+          case 'operation-not-allowed':
+            errorMessage = 'La recuperación de contraseña no está habilitada para esta aplicación';
+            break;
+          default:
+            errorMessage = 'Error al enviar el email: ${e.message}';
+        }
+
+        return {
+          'success': false,
+          'message': errorMessage
+        };
+      }
+
     } catch (e) {
-      developer.log('❌ Error inesperado en recuperación: $e', name: 'my_porki.auth');
-      return 'Error inesperado: $e';
+      developer.log('❌ ERROR INESPERADO: $e', name: 'my_porki.auth');
+      return {
+        'success': false,
+        'message': 'Error inesperado: $e'
+      };
     }
   }
 
-  /// ✅ Manejar errores específicos de recuperación de contraseña
-  static String _handlePasswordResetError(FirebaseAuthException e) {
-    switch (e.code) {
-      case 'user-not-found':
-        return 'No existe una cuenta con este correo electrónico';
-      case 'invalid-email':
-        return 'El correo electrónico no es válido';
-      case 'network-request-failed':
-        return 'Error de conexión a internet. Verifica tu conexión';
-      case 'too-many-requests':
-        return 'Demasiados intentos. Por favor, espera unos minutos antes de intentar nuevamente';
-      case 'operation-not-allowed':
-        return 'La recuperación de contraseña no está habilitada para esta aplicación';
-      default:
-        return 'Error al enviar el email de recuperación: ${e.message}';
+  /// 🔧 REPARACIÓN AUTOMÁTICA DE USUARIO HUÉRFANO
+  static Future<Map<String, dynamic>> _autoRepairUser(String email, Map<String, dynamic> userData) async {
+    try {
+      developer.log('🛠️ REPARACIÓN AUTOMÁTICA PARA: $email', name: 'my_porki.auth');
+      
+      final username = userData['username'] ?? 'Usuario';
+      final tempPassword = _generateTempPassword();
+
+      // Crear usuario en Auth
+      final userCredential = await _auth.createUserWithEmailAndPassword(
+        email: email,
+        password: tempPassword,
+      );
+
+      final newUid = userCredential.user!.uid;
+
+      // Actualizar Firestore con nuevo UID
+      await _firestore.collection('users').doc(newUid).set({
+        ...userData,
+        'uid': newUid,
+        'updatedAt': Timestamp.now(),
+        'authRepaired': true,
+      });
+
+      developer.log('✅ USUARIO REPARADO: $email -> $newUid', name: 'my_porki.auth');
+      
+      return {
+        'success': true,
+        'message': 'Usuario reparado exitosamente'
+      };
+
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') {
+        // El usuario ya existe en Auth (caso raro)
+        developer.log('ℹ️ Usuario ya existe en Auth', name: 'my_porki.auth');
+        return {
+          'success': true,
+          'message': 'Usuario ya existía en Auth'
+        };
+      }
+      
+      developer.log('❌ Error reparando usuario: ${e.code}', name: 'my_porki.auth');
+      return {
+        'success': false,
+        'message': 'Error: ${e.code}'
+      };
+    } catch (e) {
+      developer.log('❌ Error inesperado reparando: $e', name: 'my_porki.auth');
+      return {
+        'success': false,
+        'message': 'Error: $e'
+      };
     }
   }
 
@@ -369,14 +461,12 @@ class AuthService {
         await user.updateDisplayName(displayName);
         await user.updatePhotoURL(photoURL);
         
-        // Actualizar también en Firestore
         await _firestore.collection('users').doc(user.uid).update({
           if (displayName != null) 'displayName': displayName,
           if (photoURL != null) 'photoURL': photoURL,
           'updatedAt': Timestamp.now(),
         });
 
-        // Actualizar localmente
         final currentUser = await getCurrentUser();
         if (currentUser != null) {
           await _saveUserLocally({
@@ -409,14 +499,11 @@ class AuthService {
     try {
       final user = _auth.currentUser;
       if (user != null) {
-        // Eliminar de Firestore
         await _firestore.collection('users').doc(user.uid).delete();
         
-        // Eliminar localmente
         final box = await Hive.openBox('porki_users');
         await box.delete('current_user');
         
-        // Eliminar cuenta de Firebase Auth
         await user.delete();
         
         developer.log('✅ Cuenta eliminada correctamente', name: 'my_porki.auth');
@@ -452,7 +539,6 @@ class AuthService {
           'lastAccess': Timestamp.now(),
         });
 
-        // Actualizar localmente
         final box = await Hive.openBox('porki_users');
         final localUser = box.get('current_user');
         if (localUser != null) {
@@ -479,5 +565,84 @@ class AuthService {
       developer.log('❌ Error verificando email: $e', name: 'my_porki.auth');
       return false;
     }
+  }
+
+  /// 🔧 MÉTODO PARA REPARAR USUARIOS HUÉRFANOS (Para administradores)
+  static Future<Map<String, dynamic>> fixOrphanedUser(String email) async {
+    try {
+      developer.log('🛠️ REPARANDO USUARIO HUÉRFANO: $email', name: 'my_porki.auth');
+      
+      final firestoreQuery = await _firestore
+          .collection('users')
+          .where('email', isEqualTo: email)
+          .limit(1)
+          .get();
+
+      if (firestoreQuery.docs.isEmpty) {
+        return {
+          'success': false,
+          'message': 'Usuario no encontrado en Firestore'
+        };
+      }
+
+      final userData = firestoreQuery.docs.first.data();
+      final username = userData['username'] ?? 'Usuario';
+      final tempPassword = _generateTempPassword();
+
+      try {
+        final userCredential = await _auth.createUserWithEmailAndPassword(
+          email: email,
+          password: tempPassword,
+        );
+
+        final newUid = userCredential.user!.uid;
+
+        await _firestore.collection('users').doc(newUid).set({
+          ...userData,
+          'uid': newUid,
+          'updatedAt': Timestamp.now(),
+          'authFixed': true,
+        });
+
+        await _auth.sendPasswordResetEmail(email: email);
+
+        developer.log('✅ USUARIO REPARADO: $email -> $newUid', name: 'my_porki.auth');
+        
+        return {
+          'success': true,
+          'message': 'Usuario reparado exitosamente. Se ha enviado email de recuperación.',
+          'email': email,
+          'username': username
+        };
+      } on FirebaseAuthException catch (e) {
+        if (e.code == 'email-already-in-use') {
+          // El usuario ya existe en Auth, solo enviar email
+          await _auth.sendPasswordResetEmail(email: email);
+          return {
+            'success': true,
+            'message': 'El usuario ya existe en Auth. Se ha enviado email de recuperación.',
+            'email': email,
+            'username': username
+          };
+        }
+        rethrow;
+      }
+
+    } catch (e) {
+      developer.log('❌ ERROR REPARANDO USUARIO: $e', name: 'my_porki.auth');
+      return {
+        'success': false,
+        'message': 'Error reparando usuario: $e'
+      };
+    }
+  }
+
+  /// 🔑 Generar contraseña temporal
+  static String _generateTempPassword() {
+    final random = Random.secure();
+    const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#\$%';
+    return String.fromCharCodes(
+      Iterable.generate(16, (_) => chars.codeUnitAt(random.nextInt(chars.length)))
+    );
   }
 }
