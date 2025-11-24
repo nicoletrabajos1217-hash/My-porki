@@ -1,9 +1,9 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
-import 'package:hive/hive.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tzdata;
 import 'package:my_porki/backend/services/auth_service.dart';
 import 'package:my_porki/backend/services/local_service.dart';
+import 'package:my_porki/backend/services/sow_service.dart';
 
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _plugin =
@@ -30,6 +30,150 @@ class NotificationService {
       print('✅ NotificationService inicializado');
     } catch (e) {
       print('❌ Error inicializando NotificationService: $e');
+    }
+  }
+
+  // MÉTODO NUEVO: Programar notificaciones automáticas para partos y vacunas
+  static Future<void> programarNotificacionesAutomaticas() async {
+    try {
+      print('🔔 Programando notificaciones automáticas...');
+      
+      final cerdas = await SowService.obtenerCerdas();
+      final ahora = tz.TZDateTime.now(tz.local);
+
+      for (var cerda in cerdas) {
+        final nombre = cerda['nombre'] ?? 'Cerda sin nombre';
+
+        // NOTIFICACIONES DE PARTOS - 5 días antes y mismo día
+        final fechaPartoStr = cerda['fecha_parto_calculado'];
+        if (fechaPartoStr != null) {
+          try {
+            final fechaParto = DateTime.parse(fechaPartoStr.toString());
+            final tzFechaParto = tz.TZDateTime.from(fechaParto, tz.local);
+            final diasRestantes = tzFechaParto.difference(ahora).inDays;
+
+            // Notificación 5 días antes
+            if (diasRestantes == 5) {
+              await _programarNotificacion(
+                id: 'parto_${cerda['id']}_5dias',
+                title: '🐷 Parto Próximo',
+                body: 'Parto de $nombre en 5 días',
+                scheduledDate: tzFechaParto.subtract(const Duration(days: 5)),
+              );
+            }
+
+            // Notificación el mismo día
+            if (diasRestantes == 0) {
+              await _programarNotificacion(
+                id: 'parto_${cerda['id']}_hoy',
+                title: '🐷 Parto Hoy',
+                body: 'Hoy es el parto de $nombre',
+                scheduledDate: tzFechaParto,
+              );
+            }
+          } catch (e) {
+            print('❌ Error programando notificación de parto: $e');
+          }
+        }
+
+        // NOTIFICACIONES DE VACUNAS - Mismo día
+        final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
+        for (var vacuna in vacunas) {
+          if (vacuna is Map) {
+            final dosisProgramadas = vacuna['dosis_programadas'] as List<dynamic>? ?? [];
+            for (var dosis in dosisProgramadas) {
+              if (dosis is Map) {
+                final fechaVacunaStr = dosis['fecha'];
+                if (fechaVacunaStr != null) {
+                  try {
+                    final fechaVacuna = DateTime.parse(fechaVacunaStr.toString());
+                    final tzFechaVacuna = tz.TZDateTime.from(fechaVacuna, tz.local);
+                    final nombreVacuna = vacuna['nombre'] ?? 'Vacuna';
+                    final numDosis = dosis['numero_dosis'] ?? 1;
+
+                    // Notificación el día de la vacuna
+                    await _programarNotificacion(
+                      id: 'vacuna_${cerda['id']}_${nombreVacuna}_$numDosis',
+                      title: '💉 Vacuna Hoy',
+                      body: '$nombreVacuna (Dosis $numDosis) para $nombre',
+                      scheduledDate: tzFechaVacuna,
+                    );
+                  } catch (e) {
+                    print('❌ Error programando notificación de vacuna: $e');
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      print('✅ Notificaciones automáticas programadas');
+    } catch (e) {
+      print('❌ Error en programarNotificacionesAutomaticas: $e');
+    }
+  }
+
+  // MÉTODO NUEVO: Mostrar notificación de prueba
+  static Future<void> mostrarNotificacionPrueba() async {
+    try {
+      await _plugin.show(
+        DateTime.now().millisecondsSinceEpoch.remainder(100000),
+        '🐷 My Porki',
+        'Las notificaciones están funcionando correctamente',
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'general_channel',
+            'Notificaciones My Porki',
+            channelDescription: 'Recordatorios de partos y vacunas',
+            importance: Importance.high,
+            priority: Priority.high,
+            playSound: true,
+          ),
+          iOS: DarwinNotificationDetails(
+            sound: 'default',
+          ),
+        ),
+      );
+      print('✅ Notificación de prueba mostrada');
+    } catch (e) {
+      print('❌ Error mostrando notificación de prueba: $e');
+    }
+  }
+
+  // MÉTODO AUXILIAR: Programar notificación individual
+  static Future<void> _programarNotificacion({
+    required String id,
+    required String title,
+    required String body,
+    required tz.TZDateTime scheduledDate,
+  }) async {
+    // Solo programar si la fecha es en el futuro
+    if (scheduledDate.isAfter(tz.TZDateTime.now(tz.local))) {
+      await _plugin.zonedSchedule(
+        id.hashCode,
+        title,
+        body,
+        scheduledDate,
+        const NotificationDetails(
+          android: AndroidNotificationDetails(
+            'general_channel',
+            'Notificaciones My Porki',
+            channelDescription: 'Recordatorios de partos y vacunas',
+            importance: Importance.high,
+            priority: Priority.high,
+            playSound: true,
+          ),
+          iOS: DarwinNotificationDetails(
+            sound: 'default',
+          ),
+        ),
+        androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+        uiLocalNotificationDateInterpretation:
+            UILocalNotificationDateInterpretation.absoluteTime,
+      );
+
+      print('📅 Notificación programada: $title - $scheduledDate');
     }
   }
 

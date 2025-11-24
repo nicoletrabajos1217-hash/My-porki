@@ -18,6 +18,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
   List<Map<String, dynamic>>? _cerdasList;
   bool _cargando = true;
   bool _guardando = false;
+  List<bool> _prenezExpandida = []; // Para controlar qué preñez está expandida
 
   final _formKey = GlobalKey<FormState>();
   final DateFormat _fechaFormat = DateFormat('dd/MM/yyyy');
@@ -120,6 +121,12 @@ class _CerdaScreenState extends State<CerdaScreen> {
           _cerda!['vacunas'] ??= [];
           _cerda!['historial'] ??= [];
         }
+
+        // VERIFICAR SI HAY PREÑEZ INICIAL Y AGREGARLA SI NO EXISTE
+        _verificarYAgregarPrenezInicial();
+        
+        // INICIALIZAR ESTADO DE EXPANSIÓN - TODAS EXPANDIDAS POR DEFECTO
+        _prenezExpandida = List.generate(_cerda!['partos'].length, (index) => true);
         
         print('✅ Cerda cargada: ${_cerda!['nombre']}');
       } else {
@@ -127,6 +134,84 @@ class _CerdaScreenState extends State<CerdaScreen> {
       }
     } catch (e) {
       print('❌ Error en _cargarCerdaIndividual: $e');
+    }
+  }
+
+  // NUEVA FUNCIÓN: Verificar y agregar preñez inicial si existe fecha_prenez
+  void _verificarYAgregarPrenezInicial() {
+    if (_cerda == null) return;
+
+    final fechaPrenez = _cerda!['fecha_prenez'];
+    final partos = _cerda!['partos'] as List<dynamic>;
+
+    // Si hay fecha de preñez pero no hay preñeces registradas, crear la preñez inicial
+    if (fechaPrenez != null && partos.isEmpty) {
+      final fechaPrenezDate = DateTime.tryParse(fechaPrenez);
+      if (fechaPrenezDate != null) {
+        final fechaPartoCalculado = fechaPrenezDate.add(const Duration(days: 114));
+        
+        setState(() {
+          _cerda!['partos'].add({
+            "fecha_prenez": fechaPrenez,
+            "fecha_parto": null,
+            "fecha_parto_calculado": fechaPartoCalculado.toIso8601String(),
+            "num_lechones": 0,
+            "estado": "Preñada",
+            "observaciones": "Preñez inicial",
+            "es_preñez_inicial": true
+          });
+          // Agregar estado de expansión para la nueva preñez (expandida por defecto)
+          _prenezExpandida.add(true);
+        });
+        
+        print('✅ Preñez inicial agregada automáticamente');
+      }
+    }
+  }
+
+  // NUEVA FUNCIÓN: Calcular días restantes para el parto
+  String _calcularProximidadParto(String? fechaPartoCalculado) {
+    if (fechaPartoCalculado == null) return 'Sin fecha';
+    
+    try {
+      final fechaParto = DateTime.parse(fechaPartoCalculado);
+      final ahora = DateTime.now();
+      final diferencia = fechaParto.difference(ahora).inDays;
+      
+      if (diferencia < 0) {
+        return 'Parto pasado (${diferencia.abs()} días)';
+      } else if (diferencia == 0) {
+        return '¡Parto hoy!';
+      } else if (diferencia <= 7) {
+        return '¡En $diferencia días!';
+      } else {
+        return 'En $diferencia días';
+      }
+    } catch (e) {
+      return 'Error en fecha';
+    }
+  }
+
+  // NUEVA FUNCIÓN: Obtener color según proximidad del parto
+  Color _obtenerColorProximidad(String? fechaPartoCalculado) {
+    if (fechaPartoCalculado == null) return Colors.grey;
+    
+    try {
+      final fechaParto = DateTime.parse(fechaPartoCalculado);
+      final ahora = DateTime.now();
+      final diferencia = fechaParto.difference(ahora).inDays;
+      
+      if (diferencia < 0) {
+        return Colors.orange;
+      } else if (diferencia == 0) {
+        return Colors.red;
+      } else if (diferencia <= 7) {
+        return Colors.orange;
+      } else {
+        return Colors.green;
+      }
+    } catch (e) {
+      return Colors.grey;
     }
   }
 
@@ -185,9 +270,6 @@ class _CerdaScreenState extends State<CerdaScreen> {
               content: Text("Cerda guardada correctamente 🐷"),
               backgroundColor: Colors.green),
         );
-        
-        // Opcional: Navegar back después de guardar exitosamente
-        // Navigator.pop(context);
       }
     } catch (e) {
       print('❌ Error al guardar: $e');
@@ -256,9 +338,19 @@ class _CerdaScreenState extends State<CerdaScreen> {
     }
   }
 
-  void _agregarParto() {
+  // CAMBIO: Ahora es "Agregar Preñez" en lugar de "Agregar Parto"
+  void _agregarPrenez() {
     setState(() {
-      (_cerda!['partos'] as List).add({"fecha": null, "num_lechones": 0});
+      (_cerda!['partos'] as List).add({
+        "fecha_prenez": null,           // Fecha de preñez
+        "fecha_parto": null,            // Fecha real del parto (se llena después)
+        "fecha_parto_calculado": null,  // Fecha calculada (prenez + 114 días)
+        "num_lechones": 0,              // Número de lechones
+        "estado": "Preñada",            // Estado de esta preñez
+        "observaciones": ""             // Observaciones adicionales
+      });
+      // Agregar estado de expansión para la nueva preñez (expandida por defecto)
+      _prenezExpandida.add(true);
     });
   }
 
@@ -273,9 +365,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
     });
   }
 
-  void _eliminarParto(int index) {
+  void _eliminarPrenez(int index) {
     setState(() {
       (_cerda!['partos'] as List).removeAt(index);
+      _prenezExpandida.removeAt(index);
     });
   }
 
@@ -286,7 +379,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
   }
 
   String _mostrarFecha(String? fecha) {
-    if (fecha == null) return 'Seleccionar 🐷';
+    if (fecha == null) return 'No especificada';
     try {
       return _fechaFormat.format(DateTime.parse(fecha));
     } catch (_) {
@@ -294,9 +387,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
     }
   }
 
-  Future<void> _seleccionarFecha(int index) async {
-    final current = (_cerda!['partos'] as List)[index]['fecha'] != null
-        ? DateTime.tryParse((_cerda!['partos'] as List)[index]['fecha'])
+  // CAMBIO: Nueva función para seleccionar fecha de preñez
+  Future<void> _seleccionarFechaPrenez(int index) async {
+    final current = (_cerda!['partos'] as List)[index]['fecha_prenez'] != null
+        ? DateTime.tryParse((_cerda!['partos'] as List)[index]['fecha_prenez'])
         : DateTime.now();
     final fecha = await showDatePicker(
       context: context,
@@ -306,9 +400,62 @@ class _CerdaScreenState extends State<CerdaScreen> {
     );
     if (fecha != null) {
       setState(() {
-        (_cerda!['partos'] as List)[index]['fecha'] = fecha.toIso8601String();
+        (_cerda!['partos'] as List)[index]['fecha_prenez'] = fecha.toIso8601String();
+        // Calcular fecha de parto (prenez + 114 días)
+        final fechaPartoCalculado = fecha.add(const Duration(days: 114));
+        (_cerda!['partos'] as List)[index]['fecha_parto_calculado'] = fechaPartoCalculado.toIso8601String();
       });
     }
+  }
+
+  // CAMBIO: Nueva función para seleccionar fecha real de parto
+  Future<void> _seleccionarFechaParto(int index) async {
+    final current = (_cerda!['partos'] as List)[index]['fecha_parto'] != null
+        ? DateTime.tryParse((_cerda!['partos'] as List)[index]['fecha_parto'])
+        : DateTime.now();
+    final fecha = await showDatePicker(
+      context: context,
+      initialDate: current ?? DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+    );
+    if (fecha != null) {
+      setState(() {
+        (_cerda!['partos'] as List)[index]['fecha_parto'] = fecha.toIso8601String();
+      });
+    }
+  }
+
+  // NUEVA FUNCIÓN: Alternar expansión de preñez
+  void _alternarExpansionPrenez(int index) {
+    setState(() {
+      _prenezExpandida[index] = !_prenezExpandida[index];
+    });
+  }
+
+  // NUEVA FUNCIÓN: Mostrar información como texto simple
+  Widget _buildInfoItem(String titulo, String valor) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          titulo,
+          style: const TextStyle(
+            fontSize: 14,
+            fontWeight: FontWeight.bold,
+            color: Colors.grey,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          valor.isEmpty ? "No especificado" : valor,
+          style: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
   }
 
   @override
@@ -391,7 +538,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
                         children: [
                           Text('ID: $id', style: const TextStyle(fontSize: 12)),
                           Text('Estado: $estado'),
-                          if (numPartos > 0) Text('Partos: $numPartos'),
+                          if (numPartos > 0) Text('Preñeces: $numPartos'),
                         ],
                       ),
                       trailing: const Icon(Icons.arrow_forward_ios, size: 16),
@@ -467,7 +614,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
               ),
               const SizedBox(height: 12),
 
-              // Estado reproductivo
+              // Estado reproductivo - CORREGIDO
               Row(
                 children: [
                   const Text("Estado: ", style: TextStyle(fontWeight: FontWeight.bold)),
@@ -477,27 +624,31 @@ class _CerdaScreenState extends State<CerdaScreen> {
                     items: ['No preñada', 'Preñada', 'Gestante']
                         .map((e) => DropdownMenuItem(value: e, child: Text(e)))
                         .toList(),
-                    onChanged: (val) {
+                    onChanged: (val) async {
                       setState(() {
                         _cerda!['estado'] = val!;
                       });
+                      
+                      // GUARDAR AUTOMÁTICAMENTE cuando cambia el estado
+                      print('🔄 Estado cambiado a: $val - Guardando automáticamente...');
+                      await _guardarCerda();
                     },
                   ),
                 ],
               ),
               const SizedBox(height: 20),
 
-              // PARTOS
+              // CAMBIO: Ahora es "PREÑEZES" en lugar de "PARTOS" - CON NUEVO EMOJI Y COLOR
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("Partos 🐷",
+                  const Text("Preñeces 🐽",
                       style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   ElevatedButton.icon(
-                      onPressed: _agregarParto,
+                      onPressed: _agregarPrenez,
                       icon: const Icon(Icons.add, size: 18),
-                      label: const Text("Agregar"),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.green)),
+                      label: const Text("Agregar Preñez"),
+                      style: ElevatedButton.styleFrom(backgroundColor: const Color.fromARGB(255, 212, 86, 191))),
                 ],
               ),
               const SizedBox(height: 8),
@@ -505,66 +656,180 @@ class _CerdaScreenState extends State<CerdaScreen> {
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
-                    "Total partos: ${(_cerda!['partos'] as List).length} | Total lechones: $totalLechones 🐷",
+                    "Total preñeces: ${(_cerda!['partos'] as List).length} | Total lechones: $totalLechones 🐷",
                     style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
                   ),
                 ),
               ...(_cerda!['partos'] as List).asMap().entries.map((entry) {
                 final index = entry.key;
-                final parto = entry.value;
+                final prenez = entry.value;
+                final fechaPartoCalculado = prenez['fecha_parto_calculado'];
+                final proximidadParto = _calcularProximidadParto(fechaPartoCalculado);
+                final colorProximidad = _obtenerColorProximidad(fechaPartoCalculado);
+                final estaExpandida = _prenezExpandida[index];
+                
                 return Card(
                   margin: const EdgeInsets.symmetric(vertical: 8),
                   elevation: 3,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Parto #${index + 1}',
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
-                        const SizedBox(height: 8),
-                        Row(
+                  child: Column(
+                    children: [
+                      // CABECERA DESPLEGABLE
+                      ListTile(
+                        leading: Icon(
+                          estaExpandida ? Icons.expand_less : Icons.expand_more,
+                          color: const Color.fromARGB(255, 212, 86, 191),
+                        ),
+                        title: Row(
                           children: [
-                            Expanded(
-                              child: TextFormField(
-                                readOnly: true,
-                                decoration: InputDecoration(
-                                  labelText: "Fecha parto",
-                                  hintText: _mostrarFecha(parto['fecha']),
-                                  border: const OutlineInputBorder(),
+                            Text('Prenez #${index + 1}',
+                                style: const TextStyle(fontWeight: FontWeight.bold)),
+                            if (prenez['es_prenez_inicial'] == true)
+                              Container(
+                                margin: const EdgeInsets.only(left: 8),
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.green.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(color: Colors.green),
+                                ),
+                                child: const Text(
+                                  'Inicial',
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    color: Colors.green,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        subtitle: Text(
+                          'Fecha prenez: ${_mostrarFecha(prenez['fecha_prenez'])}',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: colorProximidad.withOpacity(0.1),
+                                borderRadius: BorderRadius.circular(12),
+                                border: Border.all(color: colorProximidad),
+                              ),
+                              child: Text(
+                                proximidadParto,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                  color: colorProximidad,
                                 ),
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.calendar_today, color: Colors.blue),
-                              onPressed: () => _seleccionarFecha(index),
-                            ),
-                            IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red),
-                              onPressed: () => _eliminarParto(index),
+                              icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                              onPressed: () => _eliminarPrenez(index),
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          initialValue: parto['num_lechones']?.toString(),
-                          decoration: const InputDecoration(
-                            labelText: "Número de lechones",
-                            border: OutlineInputBorder(),
+                        onTap: () => _alternarExpansionPrenez(index),
+                      ),
+                      
+                      // CONTENIDO DESPLEGABLE - SIEMPRE VISIBLE CUANDO EXPANDIDO
+                      if (estaExpandida)
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              // INFORMACIÓN VISIBLE DIRECTAMENTE
+                              _buildInfoItem("Fecha de prenez", _mostrarFecha(prenez['fecha_prenez'])),
+                              const SizedBox(height: 16),
+                              
+                              if (fechaPartoCalculado != null)
+                                Column(
+                                  children: [
+                                    _buildInfoItem("Fecha parto calculada", _mostrarFecha(fechaPartoCalculado)),
+                                    const SizedBox(height: 16),
+                                  ],
+                                ),
+                              
+                              _buildInfoItem("Fecha real de parto", _mostrarFecha(prenez['fecha_parto'])),
+                              const SizedBox(height: 16),
+                              
+                              _buildInfoItem("Número de lechones", "${prenez['num_lechones'] ?? 0} lechones"),
+                              const SizedBox(height: 16),
+                              
+                              if (prenez['observaciones'] != null && prenez['observaciones'].isNotEmpty)
+                                Column(
+                                  children: [
+                                    _buildInfoItem("Observaciones", prenez['observaciones']),
+                                    const SizedBox(height: 16),
+                                  ],
+                                ),
+                              
+                              // BOTONES PARA EDITAR
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _seleccionarFechaPrenez(index),
+                                      icon: const Icon(Icons.calendar_today, size: 16),
+                                      label: const Text("Editar fecha prenez"),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color.fromARGB(255, 212, 86, 191),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Expanded(
+                                    child: ElevatedButton.icon(
+                                      onPressed: () => _seleccionarFechaParto(index),
+                                      icon: const Icon(Icons.calendar_today, size: 16),
+                                      label: const Text("Editar fecha parto"),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: const Color.fromARGB(255, 86, 156, 212),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              
+                              // CAMPO PARA EDITAR NÚMERO DE LECHONES
+                              TextFormField(
+                                initialValue: prenez['num_lechones']?.toString(),
+                                decoration: const InputDecoration(
+                                  labelText: "Número de lechones nacidos",
+                                  border: OutlineInputBorder(),
+                                ),
+                                keyboardType: TextInputType.number,
+                                onChanged: (val) =>
+                                    prenez['num_lechones'] = int.tryParse(val) ?? 0,
+                              ),
+                              const SizedBox(height: 16),
+                              
+                              // CAMPO PARA OBSERVACIONES
+                              TextFormField(
+                                initialValue: prenez['observaciones'],
+                                decoration: const InputDecoration(
+                                  labelText: "Observaciones",
+                                  border: OutlineInputBorder(),
+                                ),
+                                maxLines: 2,
+                                onChanged: (val) => prenez['observaciones'] = val,
+                              ),
+                            ],
                           ),
-                          keyboardType: TextInputType.number,
-                          onChanged: (val) =>
-                              parto['num_lechones'] = int.tryParse(val) ?? 0,
                         ),
-                      ],
-                    ),
+                    ],
                   ),
                 );
               }),
 
               const SizedBox(height: 20),
 
-              // VACUNAS
+              // VACUNAS (sin cambios)
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [

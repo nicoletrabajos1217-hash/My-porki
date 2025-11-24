@@ -67,7 +67,6 @@ class SowService {
     }
   }
 
-  /// ACTUALIZAR CERDA
   static Future<void> actualizarCerda({
     required String id,
     String? nombre,
@@ -80,26 +79,43 @@ class SowService {
       final cerda = await obtenerCerda(id);
       if (cerda == null) throw Exception('Cerda no encontrada');
 
-      final fechaPartoCalculado =
-          fechaPrenez != null ? fechaPrenez.add(const Duration(days: 114)) : cerda['fecha_parto_calculado'] != null
-              ? DateTime.tryParse(cerda['fecha_parto_calculado'])
-              : null;
+      // FECHA PARTO CALCULADA
+      DateTime? fechaPartoCalculado;
+      if (fechaPrenez != null) {
+        fechaPartoCalculado = fechaPrenez.add(const Duration(days: 114));
+      } else {
+        final fExist = DateTime.tryParse(cerda['fecha_prenez'] ?? '');
+        fechaPartoCalculado =
+            fExist != null ? fExist.add(const Duration(days: 114)) : null;
+      }
 
+      // VACUNAS
       final vacunasProcesadas = _procesarVacunas(vacunas, cerda);
 
+      // CORRECCIÓN REAL DEL ESTADO - LÓGICA SIMPLIFICADA
+      final estadoFinal = estado ?? 
+          ((fechaPrenez != null || cerda['fecha_prenez'] != null) 
+              ? 'Preñada' 
+              : 'No preñada');
+
+      // OBJETO ACTUALIZADO
       final cerdaActualizada = {
         ...cerda,
         'nombre': nombre ?? cerda['nombre'],
         'fecha_prenez': fechaPrenez?.toIso8601String() ?? cerda['fecha_prenez'],
         'fecha_parto_calculado': fechaPartoCalculado?.toIso8601String(),
         'partos': partos ?? List<Map<String, dynamic>>.from(cerda['partos'] ?? []),
-        'vacunas': vacunasProcesadas.isNotEmpty ? vacunasProcesadas : List<Map<String, dynamic>>.from(cerda['vacunas'] ?? []),
-        'estado': estado ?? (fechaPrenez != null ? 'Preñada' : 'No preñada'),
+        'vacunas': vacunasProcesadas.isNotEmpty
+            ? vacunasProcesadas
+            : List<Map<String, dynamic>>.from(cerda['vacunas'] ?? []),
+        'estado': estadoFinal, // Estado corregido
         'fecha_actualizacion': DateTime.now().toIso8601String(),
       };
 
+      // Guardar local
       await LocalService.saveData(key: id, value: cerdaActualizada);
 
+      // Guardar Firestore
       final hasConnection = await LocalService.checkConnectivity();
       if (hasConnection) {
         await _firestore.collection('sows').doc(id).set(cerdaActualizada);
@@ -111,7 +127,7 @@ class SowService {
         );
       }
 
-      print('✅ Cerda actualizada: ${cerdaActualizada['nombre']}');
+      print('✅ Cerda actualizada correctamente: ${cerdaActualizada['nombre']}');
     } catch (e) {
       print('❌ Error actualizando cerda: $e');
       rethrow;
@@ -286,5 +302,114 @@ class SowService {
       total += numLechones is int ? numLechones : int.tryParse('$numLechones') ?? 0;
     }
     return total;
+  }
+
+  /// NUEVO MÉTODO: OBTENER ESTADÍSTICAS PARA EL RESUMEN
+  static Future<Map<String, int>> obtenerEstadisticasResumen() async {
+    try {
+      final cerdas = await obtenerCerdas();
+      final ahora = DateTime.now();
+
+      int totalCerdas = cerdas.length;
+      int prenadas = 0;
+      int totalLechones = 0;
+      int partosHoy = 0;
+      int partosPendientes = 0;
+      int vacunasHoy = 0;
+
+      for (var cerda in cerdas) {
+        // Contar preñadas
+        final estado = (cerda['estado'] ?? '').toString().toLowerCase();
+        final fechaPrenez = cerda['fecha_prenez'];
+        final fechaPartoCalc = cerda['fecha_parto_calculado'];
+        
+        if (estado.contains('preñ') || 
+            estado.contains('pregnant') || 
+            fechaPrenez != null ||
+            (fechaPartoCalc != null && DateTime.parse(fechaPartoCalc.toString()).isAfter(ahora))) {
+          prenadas++;
+        }
+
+        // Contar lechones
+        final partos = cerda['partos'] as List<dynamic>? ?? [];
+        for (var parto in partos) {
+          if (parto is Map) {
+            final numLechones = parto['num_lechones'];
+            totalLechones += (numLechones is int ? numLechones : int.tryParse('$numLechones') ?? 0);
+
+            // Contar partos hoy
+            final fechaPartoStr = parto['fecha'];
+            if (fechaPartoStr != null) {
+              try {
+                final fechaParto = DateTime.parse(fechaPartoStr.toString());
+                if (fechaParto.year == ahora.year && 
+                    fechaParto.month == ahora.month && 
+                    fechaParto.day == ahora.day) {
+                  partosHoy++;
+                }
+              } catch (e) {
+                // Ignorar errores de parseo
+              }
+            }
+          }
+        }
+
+        // Contar partos pendientes
+        if (fechaPartoCalc != null) {
+          try {
+            final fechaParto = DateTime.parse(fechaPartoCalc.toString());
+            if (!fechaParto.isBefore(ahora)) {
+              partosPendientes++;
+            }
+          } catch (e) {
+            // Ignorar errores de parseo
+          }
+        }
+
+        // Contar vacunas hoy
+        final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
+        for (var vac in vacunas) {
+          if (vac is Map) {
+            final dosisProgramadas = vac['dosis_programadas'] as List<dynamic>? ?? [];
+            for (var dosis in dosisProgramadas) {
+              if (dosis is Map) {
+                final fechaVacStr = dosis['fecha'];
+                if (fechaVacStr != null) {
+                  try {
+                    final fechaVac = DateTime.parse(fechaVacStr.toString());
+                    if (fechaVac.year == ahora.year && 
+                        fechaVac.month == ahora.month && 
+                        fechaVac.day == ahora.day) {
+                      vacunasHoy++;
+                    }
+                  } catch (e) {
+                    // Ignorar errores de parseo
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      return {
+        'totalCerdas': totalCerdas,
+        'prenadas': prenadas,
+        'totalLechones': totalLechones,
+        'partosHoy': partosHoy,
+        'partosPendientes': partosPendientes,
+        'vacunasHoy': vacunasHoy,
+      };
+    } catch (e) {
+      print('❌ Error obteniendo estadísticas: $e');
+      return {
+        'totalCerdas': 0,
+        'prenadas': 0,
+        'totalLechones': 0,
+        'partosHoy': 0,
+        'partosPendientes': 0,
+        'vacunasHoy': 0,
+      };
+    }
   }
 }

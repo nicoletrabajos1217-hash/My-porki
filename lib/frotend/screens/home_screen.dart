@@ -5,12 +5,13 @@ import 'package:my_porki/backend/services/sow_service.dart';
 import 'package:my_porki/frotend/screens/agregar_cerda_screen.dart';
 import 'package:my_porki/frotend/screens/cerda_screen.dart';
 import 'package:my_porki/frotend/screens/historial_screen.dart';
+import 'package:my_porki/frotend/screens/informes_screen.dart';
 import 'package:my_porki/frotend/screens/login_screen.dart';
 import 'package:my_porki/frotend/screens/notificaciones_screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
- 
+
 class HomeScreen extends StatefulWidget {
   final Map<String, dynamic> userData;
   const HomeScreen({super.key, required this.userData});
@@ -31,13 +32,48 @@ class _HomeScreenState extends State<HomeScreen> {
   List<Map<String, dynamic>> _notificaciones = [];
   int _cantidadNotificaciones = 0;
 
+  // Caja y lista normalizada de cerdas para el resumen
+  Box? _porkiBox;
+  List<Map<String, dynamic>> _cerdasResumen = [];
+
   @override
   void initState() {
     super.initState();
     _syncService = SyncService();
+    _init(); // inicializaciones asíncronas
     _iniciarFirebaseListener();
-    _cargarDatos();
     _iniciarSincronizacionAutomatica();
+    _debugCerdasData(); // ← AÑADIDO para debugging
+  }
+
+  // AÑADIR ESTA FUNCIÓN NUEVA PARA DEBUG
+  void _debugCerdasData() async {
+    final cerdas = await SowService.obtenerCerdas();
+    print('🔍 DEBUG - Total cerdas desde SowService: ${cerdas.length}');
+    
+    for (var cerda in cerdas) {
+      print('''
+Cerda: ${cerda['nombre']}
+- Estado: ${cerda['estado']}
+- Fecha Preñez: ${cerda['fecha_prenez']}
+- Fecha Parto Calculado: ${cerda['fecha_parto_calculado']}
+- Partos: ${(cerda['partos'] as List).length}
+- Vacunas: ${(cerda['vacunas'] as List).length}
+''');
+    }
+  }
+
+  Future<void> _init() async {
+    try {
+      _porkiBox = await Hive.openBox('porki_data');
+      print('✅ Caja porki_data abierta en HomeScreen');
+    } catch (e) {
+      print('❌ Error abriendo caja porki_data: $e');
+    }
+
+    // Cargar inicialmente desde LocalService/SowService y desde Hive
+    await _reloadFromHive();
+    await _cargarDatos();
   }
 
   @override
@@ -57,16 +93,52 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Normaliza los valores de la caja a List<Map<String,dynamic>> y guarda en estado
+  Future<void> _reloadFromHive() async {
+    try {
+      final box = _porkiBox ?? await Hive.openBox('porki_data');
+      final normalized = <Map<String, dynamic>>[];
+
+      for (var v in box.values) {
+        if (v is Map) {
+          final converted = <String, dynamic>{};
+          v.forEach((k, val) => converted[k.toString()] = val);
+          // Asegurarse de que el type esté presente para filtrar
+          if (converted['type'] == null && (converted['id'] != null)) {
+            converted['type'] = 'sow';
+          }
+          if (converted['type'] == 'sow') {
+            normalized.add(converted);
+          }
+        }
+      }
+
+      // Orden consistente (opcional)
+      normalized.sort((a, b) {
+        final fa = DateTime.tryParse(a['fecha_creacion'] ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final fb = DateTime.tryParse(b['fecha_creacion'] ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        return fb.compareTo(fa);
+      });
+
+      if (mounted) {
+        setState(() {
+          _cerdasResumen = normalized;
+        });
+      }
+
+      print('🔁 reloadFromHive: ${_cerdasResumen.length} cerdas cargadas desde Hive');
+    } catch (e) {
+      print('❌ Error en _reloadFromHive: $e');
+    }
+  }
+
   void _iniciarFirebaseListener() {
     try {
       final firestore = FirebaseFirestore.instance;
-      
-      _firebaseSubscription = firestore
-          .collection('sows')
-          .snapshots()
-          .listen((snapshot) async {
+
+      _firebaseSubscription = firestore.collection('sows').snapshots().listen((snapshot) async {
         try {
-          final box = await Hive.openBox('porki_data');
+          final box = _porkiBox ?? await Hive.openBox('porki_data');
 
           print('🔄 Firebase listener: ${snapshot.docs.length} documentos detectados');
 
@@ -81,47 +153,42 @@ class _HomeScreenState extends State<HomeScreen> {
               'lastSync': DateTime.now().toIso8601String(),
             };
 
-            bool encontrado = false;
-            for (var key in box.keys) {
-              final item = box.get(key);
-              if (item is Map && item['id'] == sowId) {
-                final Map<dynamic, dynamic> itemLocal = item;
-                final Map<String, dynamic> convertedItem = {};
-                itemLocal.forEach((k, v) {
-                  convertedItem[k.toString()] = v;
-                });
-                sowData['historial'] = convertedItem['historial'] ?? [];
-                sowData['vacunas'] = convertedItem['vacunas'] ?? [];
-                sowData['partos'] = convertedItem['partos'] ?? [];
-                await box.put(key, sowData);
-                encontrado = true;
-                print('✅ Actualizada cerda: ${sowData['nombre']}');
-                break;
-              }
+            // Conservar campos locales si existen
+            final localItem = await box.values.firstWhere(
+              (it) => it is Map && (it['id'] == sowId || it['hiveKey'] == sowId),
+              orElse: () => null,
+            );
+
+            if (localItem is Map) {
+              final convertedLocal = <String, dynamic>{};
+              localItem.forEach((k, v) => convertedLocal[k.toString()] = v);
+              sowData['historial'] = convertedLocal['historial'] ?? sowData['historial'] ?? [];
+              sowData['vacunas'] = convertedLocal['vacunas'] ?? sowData['vacunas'] ?? [];
+              sowData['partos'] = convertedLocal['partos'] ?? sowData['partos'] ?? [];
             }
 
-            if (!encontrado) {
-              await box.put(sowId, sowData);
-              print('✅ Nueva cerda agregada: ${sowData['nombre']}');
-            }
+            // Guardar usando la id remota como clave (consistencia)
+            await box.put(sowId, sowData);
+            print('✅ Guardado/actualizado desde Firebase: ${sowData['nombre']} ($sowId)');
           }
 
+          // Limpiar locales que no existen en remoto
           final remoteIds = snapshot.docs.map((d) => d.id).toSet();
           for (var key in box.keys.toList()) {
             final item = box.get(key);
             if (item is Map && item['type'] == 'sow') {
               final localSowId = item['id'];
               if (localSowId != null && !remoteIds.contains(localSowId)) {
+                // NO eliminar automáticamente si quieres preservar offline — aquí se elimina
                 await box.delete(key);
-                print('🗑️ Cerda eliminada de local: $localSowId');
+                print('🗑️ Cerda eliminada localmente (no existe en remoto): $localSowId');
               }
             }
           }
 
-          if (mounted) {
-            await _cargarDatos();
-            setState(() => _isLoading = false);
-          }
+          // Recalcular vista
+          await _reloadFromHive();
+          await _cargarDatos();
         } catch (e) {
           print('❌ Error procesando snapshot: $e');
         }
@@ -138,8 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!_sincronizando) await _sincronizarEnBackground();
     });
 
-    _connectivitySubscription =
-        Connectivity().onConnectivityChanged.listen((result) async {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) async {
       if (result != ConnectivityResult.none && !_sincronizando) {
         await _sincronizarEnBackground();
       }
@@ -152,6 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
       bool tieneConexion = await _syncService.checkConnection();
       if (tieneConexion) {
         await _syncService.syncAllPending();
+        await _reloadFromHive();
         await _cargarDatos();
         print('✅ Sincronización automática completada');
       }
@@ -164,11 +231,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _cargarDatos() async {
     try {
-      final cerdas = await SowService.obtenerCerdas();
+      // asegurarnos de tener la caja
+      _porkiBox ??= await Hive.openBox('porki_data');
+
+      // Usar SowService para otras operaciones (partos próximos) — pero el resumen vendrá de _cerdasResumen/Hive
       final partosProximos = await SowService.obtenerPartosProximos();
-      
-      print('📊 Datos cargados: ${cerdas.length} cerdas, ${partosProximos.length} partos próximos');
-      
+
+      print('📊 Datos cargados: ${_cerdasResumen.length} cerdas, ${partosProximos.length} partos próximos');
+
       if (mounted) {
         setState(() {
           _notificaciones = partosProximos;
@@ -184,17 +254,17 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _sincronizarManualmente() async {
     if (_sincronizando) return;
-    
+
     setState(() => _sincronizando = true);
-    
+
     try {
-      final box = await Hive.openBox('porki_data');
+      final box = _porkiBox ?? await Hive.openBox('porki_data');
       final firestore = FirebaseFirestore.instance;
-      
+
       await _syncService.syncAllPending();
-      
+
       final snapshot = await firestore.collection('sows').get();
-      
+
       for (var doc in snapshot.docs) {
         final data = doc.data();
         final sowData = {
@@ -206,9 +276,10 @@ class _HomeScreenState extends State<HomeScreen> {
         };
         await box.put(doc.id, sowData);
       }
-      
+
+      await _reloadFromHive();
       await _cargarDatos();
-      
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -234,11 +305,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _navegarACerdas() {
     Navigator.push(
-      context, 
-      MaterialPageRoute(builder: (_) => const CerdaScreen())
-    ).then((_) {
-      // SOLUCIÓN: Recargar datos cuando regreses de CerdaScreen
-      _cargarDatos();
+      context,
+      MaterialPageRoute(builder: (_) => const CerdaScreen()),
+    ).then((_) async {
+      // Recargar datos cuando regreses de CerdaScreen
+      await _reloadFromHive();
+      await _cargarDatos();
     });
   }
 
@@ -266,8 +338,10 @@ class _HomeScreenState extends State<HomeScreen> {
             onPressed: _sincronizarManualmente,
             tooltip: 'Sincronizar',
           ),
+
+          // Badge de notificaciones revisando la caja directamente
           ValueListenableBuilder<Box>(
-            valueListenable: Hive.box('porki_data').listenable(),
+            valueListenable: (_porkiBox ?? Hive.box('porki_data')).listenable(),
             builder: (context, boxNotif, _) {
               int notCount = 0;
               final ahora = DateTime.now();
@@ -393,8 +467,10 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('Agregar Cerda'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => const AgregarCerdaScreen()));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const AgregarCerdaScreen())).then((_) async {
+                await _reloadFromHive();
+                await _cargarDatos();
+              });
             },
           ),
           ListTile(
@@ -402,7 +478,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('Ver Cerdas'),
             onTap: () {
               Navigator.pop(context);
-              _navegarACerdas(); // Usar el método corregido
+              _navegarACerdas();
             },
           ),
           ListTile(
@@ -410,8 +486,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('Historial'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.push(
-                  context, MaterialPageRoute(builder: (_) => const HistorialScreen()));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const HistorialScreen()));
             },
           ),
           ListTile(
@@ -419,8 +494,7 @@ class _HomeScreenState extends State<HomeScreen> {
             title: const Text('Notificaciones'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.push(
-                  context, MaterialPageRoute(builder: (_) => const NotificacionesScreen()));
+              Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificacionesScreen()));
             },
           ),
           const Divider(),
@@ -466,96 +540,144 @@ class _HomeScreenState extends State<HomeScreen> {
             childAspectRatio: 1.5,
             children: [
               _buildActionCard(context, 'Agregar Cerda', Icons.add_circle, Colors.green, () {
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (_) => const AgregarCerdaScreen()));
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const AgregarCerdaScreen())).then((_) async {
+                  await _reloadFromHive();
+                  await _cargarDatos();
+                });
               }),
               _buildActionCard(context, 'Ver Cerdas', Icons.pets, Colors.blue, () {
-                _navegarACerdas(); // Usar el método corregido
+                _navegarACerdas();
               }),
               _buildActionCard(context, 'Historial', Icons.history, Colors.orange, () {
-                Navigator.push(
-                    context, MaterialPageRoute(builder: (_) => const HistorialScreen()));
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const HistorialScreen()));
               }),
-              _buildActionCard(context, 'Notificaciones', Icons.notifications, Colors.purple, () {
-                Navigator.push(
-                    context, MaterialPageRoute(builder: (_) => const NotificacionesScreen()));
+              _buildActionCard(context, 'Informes', Icons.analytics, Colors.purple, () {
+                Navigator.push(context, MaterialPageRoute(builder: (_) => const InformesScreen()));
               }),
             ],
           ),
           const SizedBox(height: 16),
-          Expanded(child: _buildResumenGeneral()),
+          Expanded(
+            // CAMBIO MÍNIMO: Usar FutureBuilder con SowService.obtenerCerdas() para usar MISMOS datos que "Ver Cerdas"
+            child: FutureBuilder<List<Map<String, dynamic>>>(
+              future: SowService.obtenerCerdas(),
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                
+                if (snapshot.hasError) {
+                  return Center(child: Text('Error: ${snapshot.error}'));
+                }
+                
+                final cerdas = snapshot.data ?? [];
+                return _buildResumenContentFromList(cerdas);
+              },
+            ),
+          ),
         ],
       ),
     );
   }
 
-  Widget _buildResumenGeneral() {
-    return ValueListenableBuilder<Box>(
-      valueListenable: Hive.box('porki_data').listenable(),
-      builder: (context, box, _) {
-        print('🔄 ValueListenableBuilder detectó cambios - reconstruyendo resumen');
-        return _buildResumenContent(box);
-      },
-    );
-  }
+  // FUNCIÓN COMPLETAMENTE REEMPLAZADA - VERSIÓN CORREGIDA
+  Widget _buildResumenContentFromList(List<Map<String, dynamic>> cerdas) {
+    print('🔄 RESUMEN: Analizando ${cerdas.length} cerdas - ${DateTime.now()}');
 
-  Widget _buildResumenContent(Box box) {
-    final cerdas = <Map<String, dynamic>>[];
+    int totalCerdas = cerdas.length;
 
-    for (var data in box.values) {
-      if (data is Map && data['type'] == 'sow') {
-        final cerda = <String, dynamic>{};
-        data.forEach((k, v) => cerda[k.toString()] = v);
-        cerdas.add(cerda);
+    // CONTAR PREÑADAS - LÓGICA SIMPLIFICADA
+    int prenadas = cerdas.where((c) {
+      // 1. Verificar por estado
+      final estado = (c['estado'] ?? '').toString().toLowerCase();
+      if (estado.contains('preñ') || estado.contains('pregnant')) {
+        return true;
+      }
+      
+      // 2. Verificar por fecha de preñez
+      if (c['fecha_prenez'] != null) {
+        return true;
+      }
+      
+      // 3. Verificar por fecha de parto calculado en futuro
+      final fechaPartoCalc = _parseFechaSafe(c['fecha_parto_calculado']);
+      if (fechaPartoCalc != null && fechaPartoCalc.isAfter(DateTime.now())) {
+        return true;
+      }
+      
+      return false;
+    }).length;
+
+    // CONTAR LECHONES
+    int totalLechones = 0;
+    for (var cerda in cerdas) {
+      final partos = cerda['partos'] as List<dynamic>? ?? [];
+      for (var parto in partos) {
+        if (parto is Map) {
+          final numLechones = parto['num_lechones'];
+          totalLechones += (numLechones is int ? numLechones : int.tryParse('$numLechones') ?? 0);
+        }
       }
     }
 
-    int totalCerdas = cerdas.length;
-    int prenadas = cerdas.where((c) {
-      final estado = (c['estado'] ?? c['estado_cerda'] ?? '').toString().toLowerCase();
-      return estado.contains('pre') || estado.contains('gest');
-    }).length;
-
-    int totalLechones = 0;
+    // CONTAR PARTOS HOY
     int partosHoy = 0;
-    int partosPendientes = 0;
-    int vacunasHoy = 0;
     final ahora = DateTime.now();
-
     for (var cerda in cerdas) {
-      totalLechones += ((cerda['lechones_nacidos'] ??
-              cerda['numero_lechones'] ??
-              0) as int? ?? 0);
-
-      final fechaParto = cerda['fecha_parto_calculado'] ??
-          cerda['fechaPartoCalculado'] ??
-          cerda['fecha_parto'];
-      final fecha = _parseFechaSafe(fechaParto);
-      if (fecha != null) {
-        if (fecha.year == ahora.year &&
-            fecha.month == ahora.month &&
-            fecha.day == ahora.day) {
-          partosHoy++;
-        } else if (fecha.isAfter(ahora)) {
-          partosPendientes++;
+      final partos = cerda['partos'] as List<dynamic>? ?? [];
+      for (var parto in partos) {
+        if (parto is Map) {
+          final fechaParto = _parseFechaSafe(parto['fecha']);
+          if (fechaParto != null && 
+              fechaParto.year == ahora.year && 
+              fechaParto.month == ahora.month && 
+              fechaParto.day == ahora.day) {
+            partosHoy++;
+          }
         }
       }
+    }
 
-      final vacunas = cerda['vacunas'];
-      if (vacunas is List) {
-        for (var vac in vacunas) {
-          if (vac is Map) {
-            final fVac = _parseFechaSafe(vac['fecha']);
-            if (fVac != null &&
-                fVac.year == ahora.year &&
-                fVac.month == ahora.month &&
-                fVac.day == ahora.day) {
-              vacunasHoy++;
+    // CONTAR PARTOS PENDIENTES
+    int partosPendientes = 0;
+    for (var cerda in cerdas) {
+      final fechaPartoCalculado = _parseFechaSafe(cerda['fecha_parto_calculado']);
+      if (fechaPartoCalculado != null && !fechaPartoCalculado.isBefore(ahora)) {
+        partosPendientes++;
+      }
+    }
+
+    // CONTAR VACUNAS HOY
+    int vacunasHoy = 0;
+    for (var cerda in cerdas) {
+      final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
+      for (var vac in vacunas) {
+        if (vac is Map) {
+          final dosisProgramadas = vac['dosis_programadas'] as List<dynamic>? ?? [];
+          for (var dosis in dosisProgramadas) {
+            if (dosis is Map) {
+              final fVac = _parseFechaSafe(dosis['fecha']);
+              if (fVac != null && 
+                  fVac.year == ahora.year && 
+                  fVac.month == ahora.month && 
+                  fVac.day == ahora.day) {
+                vacunasHoy++;
+              }
             }
           }
         }
       }
     }
+
+    print('''
+📈 RESUMEN ACTUALIZADO:
+- Total cerdas: $totalCerdas
+- Preñadas: $prenadas  
+- Total lechones: $totalLechones
+- Partos hoy: $partosHoy
+- Partos pendientes: $partosPendientes
+- Vacunas hoy: $vacunasHoy
+''');
 
     return Card(
       elevation: 4,
@@ -563,9 +685,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text('Resumen General',
-                style: TextStyle(
-                    fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text('Resumen General', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
