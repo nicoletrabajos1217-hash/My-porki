@@ -24,12 +24,12 @@ class _HistorialScreenState extends State<HistorialScreen> {
     try {
       // CORREGIDO: Usar SowService.obtenerCerdas() en lugar de acceder directamente a Hive
       final cerdas = await SowService.obtenerCerdas();
-      
+
       setState(() {
         _cerdas = cerdas;
         _isLoading = false;
       });
-      
+
       print('✅ Historial: ${cerdas.length} cerdas cargadas');
     } catch (e) {
       print('❌ Error cargando cerdas en historial: $e');
@@ -73,7 +73,9 @@ class _HistorialScreenState extends State<HistorialScreen> {
       totalLechones += _convertirLechones(parto['num_lechones']);
     }
 
-    Color estadoColor = cerda['estado'] == 'Preñada' ? Colors.green : Colors.grey;
+    Color estadoColor = cerda['estado'] == 'Preñada'
+        ? Colors.green
+        : Colors.grey;
 
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -94,23 +96,34 @@ class _HistorialScreenState extends State<HistorialScreen> {
                     Text(
                       cerda['nombre'] ?? 'Sin nombre',
                       style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 18),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
                     ),
                     Text(
                       'ID: ${cerda['id'] ?? '-'}',
-                      style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+                      style: TextStyle(
+                        color: Colors.grey.shade600,
+                        fontSize: 14,
+                      ),
                     ),
                   ],
                 ),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                   decoration: BoxDecoration(
                     color: estadoColor.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
                     cerda['estado'] ?? '-',
-                    style: TextStyle(color: estadoColor, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: estadoColor,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ),
               ],
@@ -130,13 +143,21 @@ class _HistorialScreenState extends State<HistorialScreen> {
                 Chip(
                   label: Text('Lechones: $totalLechones'),
                   backgroundColor: Colors.orange[50],
-                  avatar: const Icon(Icons.pets, size: 20, color: Colors.orange),
+                  avatar: const Icon(
+                    Icons.pets,
+                    size: 20,
+                    color: Colors.orange,
+                  ),
                 ),
                 const SizedBox(width: 8),
                 Chip(
                   label: Text('Vacunas: ${vacunas.length}'),
                   backgroundColor: Colors.blue[50],
-                  avatar: const Icon(Icons.vaccines, size: 20, color: Colors.blue),
+                  avatar: const Icon(
+                    Icons.vaccines,
+                    size: 20,
+                    color: Colors.blue,
+                  ),
                 ),
               ],
             ),
@@ -173,23 +194,50 @@ class _HistorialScreenState extends State<HistorialScreen> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceAround,
           children: [
-            _buildEstadisticaItem("Cerdas", cerdas.length, Icons.pets, Colors.pink),
-            _buildEstadisticaItem("Preñadas", prenadas, Icons.pets, Colors.green),
-            _buildEstadisticaItem("Lechones", totalLechones, Icons.pets, Colors.orange),
-            _buildEstadisticaItem("Vacunas", totalVacunas, Icons.vaccines, Colors.blue),
+            _buildEstadisticaItem(
+              "Cerdas",
+              cerdas.length,
+              Icons.pets,
+              Colors.pink,
+            ),
+            _buildEstadisticaItem(
+              "Preñadas",
+              prenadas,
+              Icons.pets,
+              Colors.green,
+            ),
+            _buildEstadisticaItem(
+              "Lechones",
+              totalLechones,
+              Icons.pets,
+              Colors.orange,
+            ),
+            _buildEstadisticaItem(
+              "Vacunas",
+              totalVacunas,
+              Icons.vaccines,
+              Colors.blue,
+            ),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildEstadisticaItem(String titulo, int valor, IconData icono, Color color) {
+  Widget _buildEstadisticaItem(
+    String titulo,
+    int valor,
+    IconData icono,
+    Color color,
+  ) {
     return Column(
       children: [
         Icon(icono, color: color, size: 28),
         const SizedBox(height: 4),
-        Text(valor.toString(),
-            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+        Text(
+          valor.toString(),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+        ),
         Text(titulo, style: const TextStyle(fontSize: 12, color: Colors.grey)),
       ],
     );
@@ -227,20 +275,28 @@ class _HistorialScreenState extends State<HistorialScreen> {
             child: SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: [
-                  'Todas', 'Preñadas', 'No preñadas', 'Con partos', 'Con vacunas'
-                ].map(
-                  (f) => Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: FilterChip(
-                      label: Text(f),
-                      selected: _filtroSeleccionado == f,
-                      onSelected: (s) => setState(() => _filtroSeleccionado = f),
-                      selectedColor: Colors.pink[100],
-                      backgroundColor: Colors.grey[300],
-                    ),
-                  ),
-                ).toList(),
+                children:
+                    [
+                          'Todas',
+                          'Preñadas',
+                          'No preñadas',
+                          'Con partos',
+                          'Con vacunas',
+                        ]
+                        .map(
+                          (f) => Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: FilterChip(
+                              label: Text(f),
+                              selected: _filtroSeleccionado == f,
+                              onSelected: (s) =>
+                                  setState(() => _filtroSeleccionado = f),
+                              selectedColor: Colors.pink[100],
+                              backgroundColor: Colors.grey[300],
+                            ),
+                          ),
+                        )
+                        .toList(),
               ),
             ),
           ),
@@ -252,8 +308,10 @@ class _HistorialScreenState extends State<HistorialScreen> {
           Expanded(
             child: cerdasFiltradas.isEmpty
                 ? const Center(
-                    child: Text('No hay cerdas para mostrar',
-                        style: TextStyle(color: Colors.grey)),
+                    child: Text(
+                      'No hay cerdas para mostrar',
+                      style: TextStyle(color: Colors.grey),
+                    ),
                   )
                 : RefreshIndicator(
                     onRefresh: () async => _cargarCerdas(),

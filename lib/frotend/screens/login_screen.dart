@@ -184,7 +184,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     textInputAction: TextInputAction.done,
                     onSubmitted: (_) => _login(),
                   ),
-                  
+
                   // ✅ NUEVO: Enlace para recuperar contraseña
                   const SizedBox(height: 10),
                   Align(

@@ -40,14 +40,17 @@ class _CerdaScreenState extends State<CerdaScreen> {
         await _cargarListaCerdas();
         return;
       }
-      
+
       // Cargar cerda específica
       await _cargarCerdaIndividual();
     } catch (e) {
       print('❌ Error cargando cerda: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error cargando cerda: $e"), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text("Error cargando cerda: $e"),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -58,12 +61,12 @@ class _CerdaScreenState extends State<CerdaScreen> {
   Future<void> _cargarListaCerdas() async {
     try {
       print('📦 Cargando lista de cerdas...');
-      
+
       // Usar SowService.obtenerCerdas() en lugar de acceder directamente a Hive
       final cerdas = await SowService.obtenerCerdas();
-      
+
       print('✅ Cerdas cargadas desde servicio: ${cerdas.length}');
-      
+
       if (mounted) {
         setState(() => _cerdasList = cerdas);
       }
@@ -79,9 +82,9 @@ class _CerdaScreenState extends State<CerdaScreen> {
     try {
       // Usar 'porki_data' en lugar de 'cerdas'
       final box = await Hive.openBox('porki_data');
-      
+
       print('🔍 Buscando cerda con ID: ${widget.cerdaId}');
-      
+
       // Buscar en Hive primero
       Map<String, dynamic>? localCerda;
       for (var key in box.keys) {
@@ -97,7 +100,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
       // Usar colección 'sows' en lugar de 'cerdas'
       Map<String, dynamic>? firestoreCerda;
       try {
-        final doc = await _firestore.collection('sows').doc(widget.cerdaId).get();
+        final doc = await _firestore
+            .collection('sows')
+            .doc(widget.cerdaId)
+            .get();
         if (doc.exists) {
           firestoreCerda = doc.data();
           firestoreCerda?['id'] = doc.id;
@@ -114,8 +120,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
         if (localCerda != null) {
           _cerda!['hiveKey'] = localCerda['hiveKey'];
           _cerda!['partos'] = localCerda['partos'] ?? _cerda!['partos'] ?? [];
-          _cerda!['vacunas'] = localCerda['vacunas'] ?? _cerda!['vacunas'] ?? [];
-          _cerda!['historial'] = localCerda['historial'] ?? _cerda!['historial'] ?? [];
+          _cerda!['vacunas'] =
+              localCerda['vacunas'] ?? _cerda!['vacunas'] ?? [];
+          _cerda!['historial'] =
+              localCerda['historial'] ?? _cerda!['historial'] ?? [];
         } else {
           _cerda!['partos'] ??= [];
           _cerda!['vacunas'] ??= [];
@@ -124,10 +132,13 @@ class _CerdaScreenState extends State<CerdaScreen> {
 
         // VERIFICAR SI HAY PREÑEZ INICIAL Y AGREGARLA SI NO EXISTE
         _verificarYAgregarPrenezInicial();
-        
+
         // INICIALIZAR ESTADO DE EXPANSIÓN - TODAS EXPANDIDAS POR DEFECTO
-        _prenezExpandida = List.generate(_cerda!['partos'].length, (index) => true);
-        
+        _prenezExpandida = List.generate(
+          _cerda!['partos'].length,
+          (index) => true,
+        );
+
         print('✅ Cerda cargada: ${_cerda!['nombre']}');
       } else {
         print('❌ Cerda no encontrada');
@@ -148,8 +159,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
     if (fechaPrenez != null && partos.isEmpty) {
       final fechaPrenezDate = DateTime.tryParse(fechaPrenez);
       if (fechaPrenezDate != null) {
-        final fechaPartoCalculado = fechaPrenezDate.add(const Duration(days: 114));
-        
+        final fechaPartoCalculado = fechaPrenezDate.add(
+          const Duration(days: 114),
+        );
+
         setState(() {
           _cerda!['partos'].add({
             "fecha_prenez": fechaPrenez,
@@ -158,12 +171,12 @@ class _CerdaScreenState extends State<CerdaScreen> {
             "num_lechones": 0,
             "estado": "Preñada",
             "observaciones": "Preñez inicial",
-            "es_preñez_inicial": true
+            "es_preñez_inicial": true,
           });
           // Agregar estado de expansión para la nueva preñez (expandida por defecto)
           _prenezExpandida.add(true);
         });
-        
+
         print('✅ Preñez inicial agregada automáticamente');
       }
     }
@@ -172,12 +185,12 @@ class _CerdaScreenState extends State<CerdaScreen> {
   // NUEVA FUNCIÓN: Calcular días restantes para el parto
   String _calcularProximidadParto(String? fechaPartoCalculado) {
     if (fechaPartoCalculado == null) return 'Sin fecha';
-    
+
     try {
       final fechaParto = DateTime.parse(fechaPartoCalculado);
       final ahora = DateTime.now();
       final diferencia = fechaParto.difference(ahora).inDays;
-      
+
       if (diferencia < 0) {
         return 'Parto pasado (${diferencia.abs()} días)';
       } else if (diferencia == 0) {
@@ -195,12 +208,12 @@ class _CerdaScreenState extends State<CerdaScreen> {
   // NUEVA FUNCIÓN: Obtener color según proximidad del parto
   Color _obtenerColorProximidad(String? fechaPartoCalculado) {
     if (fechaPartoCalculado == null) return Colors.grey;
-    
+
     try {
       final fechaParto = DateTime.parse(fechaPartoCalculado);
       final ahora = DateTime.now();
       final diferencia = fechaParto.difference(ahora).inDays;
-      
+
       if (diferencia < 0) {
         return Colors.orange;
       } else if (diferencia == 0) {
@@ -221,7 +234,9 @@ class _CerdaScreenState extends State<CerdaScreen> {
 
     for (var parto in partos) {
       final numLechones = parto['num_lechones'];
-      total += (numLechones is int ? numLechones : int.tryParse('$numLechones') ?? 0);
+      total += (numLechones is int
+          ? numLechones
+          : int.tryParse('$numLechones') ?? 0);
     }
 
     return total;
@@ -234,7 +249,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
     setState(() => _guardando = true);
     try {
       final id = _cerda!['id'];
-      
+
       // Asegurar que tenga los campos necesarios
       _cerda!['type'] = 'sow';
       _cerda!['fecha_actualizacion'] = DateTime.now().toIso8601String();
@@ -245,20 +260,23 @@ class _CerdaScreenState extends State<CerdaScreen> {
       // Guardar en 'porki_data' en lugar de 'cerdas'
       final box = await Hive.openBox('porki_data');
       final hiveKey = _cerda!['hiveKey'] ?? id;
-      
+
       // FORZAR EL GUARDADO PARA NOTIFICAR CAMBIOS
       await box.put(hiveKey, _cerda);
-      
+
       print('✅ Guardado en Hive local - cambios notificados');
 
       // Guardar en colección 'sows' en lugar de 'cerdas'
       try {
-        await _firestore.collection('sows').doc(id).set(_cerda!, SetOptions(merge: true));
-        
+        await _firestore
+            .collection('sows')
+            .doc(id)
+            .set(_cerda!, SetOptions(merge: true));
+
         // Marcar como sincronizado
         _cerda!['synced'] = true;
         await box.put(hiveKey, _cerda);
-        
+
         print('✅ Sincronizado con Firebase');
       } catch (e) {
         print('⚠️ Error sincronizando con Firebase: $e');
@@ -267,15 +285,19 @@ class _CerdaScreenState extends State<CerdaScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text("Cerda guardada correctamente 🐷"),
-              backgroundColor: Colors.green),
+            content: Text("Cerda guardada correctamente 🐷"),
+            backgroundColor: Colors.green,
+          ),
         );
       }
     } catch (e) {
       print('❌ Error al guardar: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text("Error al guardar: $e"), backgroundColor: Colors.red),
+          SnackBar(
+            content: Text("Error al guardar: $e"),
+            backgroundColor: Colors.red,
+          ),
         );
       }
     } finally {
@@ -288,7 +310,9 @@ class _CerdaScreenState extends State<CerdaScreen> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Confirmar eliminación'),
-        content: Text('¿Deseas eliminar a "${_cerda!['nombre']}"?\n\nEsta acción no se puede deshacer.'),
+        content: Text(
+          '¿Deseas eliminar a "${_cerda!['nombre']}"?\n\nEsta acción no se puede deshacer.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -311,7 +335,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
       // Eliminar de Hive
       final box = await Hive.openBox('porki_data');
       await box.delete(hiveKey);
-      
+
       // Eliminar de Firebase
       try {
         await _firestore.collection('sows').doc(id).delete();
@@ -342,12 +366,12 @@ class _CerdaScreenState extends State<CerdaScreen> {
   void _agregarPrenez() {
     setState(() {
       (_cerda!['partos'] as List).add({
-        "fecha_prenez": null,           // Fecha de preñez
-        "fecha_parto": null,            // Fecha real del parto (se llena después)
-        "fecha_parto_calculado": null,  // Fecha calculada (prenez + 114 días)
-        "num_lechones": 0,              // Número de lechones
-        "estado": "Preñada",            // Estado de esta preñez
-        "observaciones": ""             // Observaciones adicionales
+        "fecha_prenez": null, // Fecha de preñez
+        "fecha_parto": null, // Fecha real del parto (se llena después)
+        "fecha_parto_calculado": null, // Fecha calculada (prenez + 114 días)
+        "num_lechones": 0, // Número de lechones
+        "estado": "Preñada", // Estado de esta preñez
+        "observaciones": "", // Observaciones adicionales
       });
       // Agregar estado de expansión para la nueva preñez (expandida por defecto)
       _prenezExpandida.add(true);
@@ -400,10 +424,12 @@ class _CerdaScreenState extends State<CerdaScreen> {
     );
     if (fecha != null) {
       setState(() {
-        (_cerda!['partos'] as List)[index]['fecha_prenez'] = fecha.toIso8601String();
+        (_cerda!['partos'] as List)[index]['fecha_prenez'] = fecha
+            .toIso8601String();
         // Calcular fecha de parto (prenez + 114 días)
         final fechaPartoCalculado = fecha.add(const Duration(days: 114));
-        (_cerda!['partos'] as List)[index]['fecha_parto_calculado'] = fechaPartoCalculado.toIso8601String();
+        (_cerda!['partos'] as List)[index]['fecha_parto_calculado'] =
+            fechaPartoCalculado.toIso8601String();
       });
     }
   }
@@ -421,7 +447,8 @@ class _CerdaScreenState extends State<CerdaScreen> {
     );
     if (fecha != null) {
       setState(() {
-        (_cerda!['partos'] as List)[index]['fecha_parto'] = fecha.toIso8601String();
+        (_cerda!['partos'] as List)[index]['fecha_parto'] = fecha
+            .toIso8601String();
       });
     }
   }
@@ -449,10 +476,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
         const SizedBox(height: 4),
         Text(
           valor.isEmpty ? "No especificado" : valor,
-          style: const TextStyle(
-            fontSize: 16,
-            fontWeight: FontWeight.w500,
-          ),
+          style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w500),
         ),
       ],
     );
@@ -466,7 +490,9 @@ class _CerdaScreenState extends State<CerdaScreen> {
           title: const Text('Cargando...'),
           backgroundColor: Colors.pink,
         ),
-        body: const Center(child: CircularProgressIndicator(color: Colors.pink)),
+        body: const Center(
+          child: CircularProgressIndicator(color: Colors.pink),
+        ),
       );
     }
 
@@ -494,11 +520,15 @@ class _CerdaScreenState extends State<CerdaScreen> {
                   children: [
                     const Icon(Icons.pets, size: 80, color: Colors.grey),
                     const SizedBox(height: 16),
-                    const Text('No hay cerdas disponibles',
-                        style: TextStyle(fontSize: 18, color: Colors.grey)),
+                    const Text(
+                      'No hay cerdas disponibles',
+                      style: TextStyle(fontSize: 18, color: Colors.grey),
+                    ),
                     const SizedBox(height: 8),
-                    const Text('Agrega cerdas desde el menú principal',
-                        style: TextStyle(fontSize: 14, color: Colors.grey)),
+                    const Text(
+                      'Agrega cerdas desde el menú principal',
+                      style: TextStyle(fontSize: 14, color: Colors.grey),
+                    ),
                     const SizedBox(height: 16),
                     ElevatedButton.icon(
                       onPressed: () async {
@@ -508,7 +538,9 @@ class _CerdaScreenState extends State<CerdaScreen> {
                       },
                       icon: const Icon(Icons.refresh),
                       label: const Text('Recargar'),
-                      style: ElevatedButton.styleFrom(backgroundColor: Colors.pink),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.pink,
+                      ),
                     ),
                   ],
                 ),
@@ -523,7 +555,7 @@ class _CerdaScreenState extends State<CerdaScreen> {
                   final estado = c['estado'] ?? 'No preñada';
                   final partos = c['partos'] ?? [];
                   final numPartos = partos is List ? partos.length : 0;
-                  
+
                   return Card(
                     margin: const EdgeInsets.only(bottom: 12),
                     child: ListTile(
@@ -531,8 +563,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
                         backgroundColor: Colors.pink,
                         child: Text('🐷', style: TextStyle(fontSize: 24)),
                       ),
-                      title: Text(nombre,
-                          style: const TextStyle(fontWeight: FontWeight.bold)),
+                      title: Text(
+                        nombre,
+                        style: const TextStyle(fontWeight: FontWeight.bold),
+                      ),
                       subtitle: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
@@ -546,7 +580,8 @@ class _CerdaScreenState extends State<CerdaScreen> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                              builder: (_) => CerdaScreen(cerdaId: id)),
+                            builder: (_) => CerdaScreen(cerdaId: id),
+                          ),
                         ).then((_) {
                           // Recargar lista cuando regreses de editar una cerda
                           _cargarListaCerdas();
@@ -599,7 +634,9 @@ class _CerdaScreenState extends State<CerdaScreen> {
               // ID
               TextFormField(
                 initialValue: _cerda!['id'],
-                decoration: const InputDecoration(labelText: "ID / Número de cerda"),
+                decoration: const InputDecoration(
+                  labelText: "ID / Número de cerda",
+                ),
                 enabled: false,
                 style: const TextStyle(color: Colors.grey),
               ),
@@ -609,7 +646,8 @@ class _CerdaScreenState extends State<CerdaScreen> {
               TextFormField(
                 initialValue: _cerda!['nombre'],
                 decoration: const InputDecoration(labelText: "Nombre 🐷"),
-                validator: (val) => val == null || val.isEmpty ? 'Ingrese nombre' : null,
+                validator: (val) =>
+                    val == null || val.isEmpty ? 'Ingrese nombre' : null,
                 onSaved: (val) => _cerda!['nombre'] = val!.trim(),
               ),
               const SizedBox(height: 12),
@@ -617,7 +655,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
               // Estado reproductivo - CORREGIDO
               Row(
                 children: [
-                  const Text("Estado: ", style: TextStyle(fontWeight: FontWeight.bold)),
+                  const Text(
+                    "Estado: ",
+                    style: TextStyle(fontWeight: FontWeight.bold),
+                  ),
                   const SizedBox(width: 8),
                   DropdownButton<String>(
                     value: _cerda!['estado'] ?? 'No preñada',
@@ -628,9 +669,11 @@ class _CerdaScreenState extends State<CerdaScreen> {
                       setState(() {
                         _cerda!['estado'] = val!;
                       });
-                      
+
                       // GUARDAR AUTOMÁTICAMENTE cuando cambia el estado
-                      print('🔄 Estado cambiado a: $val - Guardando automáticamente...');
+                      print(
+                        '🔄 Estado cambiado a: $val - Guardando automáticamente...',
+                      );
                       await _guardarCerda();
                     },
                   ),
@@ -642,13 +685,18 @@ class _CerdaScreenState extends State<CerdaScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("Preñeces 🐽",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    "Preñeces 🐽",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   ElevatedButton.icon(
-                      onPressed: _agregarPrenez,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text("Agregar Preñez"),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color.fromARGB(255, 212, 86, 191))),
+                    onPressed: _agregarPrenez,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text("Agregar Preñez"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color.fromARGB(255, 212, 86, 191),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 8),
@@ -657,17 +705,24 @@ class _CerdaScreenState extends State<CerdaScreen> {
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   child: Text(
                     "Total preñeces: ${(_cerda!['partos'] as List).length} | Total lechones: $totalLechones 🐷",
-                    style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      color: Colors.blue,
+                    ),
                   ),
                 ),
               ...(_cerda!['partos'] as List).asMap().entries.map((entry) {
                 final index = entry.key;
                 final prenez = entry.value;
                 final fechaPartoCalculado = prenez['fecha_parto_calculado'];
-                final proximidadParto = _calcularProximidadParto(fechaPartoCalculado);
-                final colorProximidad = _obtenerColorProximidad(fechaPartoCalculado);
+                final proximidadParto = _calcularProximidadParto(
+                  fechaPartoCalculado,
+                );
+                final colorProximidad = _obtenerColorProximidad(
+                  fechaPartoCalculado,
+                );
                 final estaExpandida = _prenezExpandida[index];
-                
+
                 return Card(
                   margin: const EdgeInsets.symmetric(vertical: 8),
                   elevation: 3,
@@ -681,12 +736,19 @@ class _CerdaScreenState extends State<CerdaScreen> {
                         ),
                         title: Row(
                           children: [
-                            Text('Prenez #${index + 1}',
-                                style: const TextStyle(fontWeight: FontWeight.bold)),
+                            Text(
+                              'Prenez #${index + 1}',
+                              style: const TextStyle(
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                             if (prenez['es_prenez_inicial'] == true)
                               Container(
                                 margin: const EdgeInsets.only(left: 8),
-                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6,
+                                  vertical: 2,
+                                ),
                                 decoration: BoxDecoration(
                                   color: Colors.green.withOpacity(0.1),
                                   borderRadius: BorderRadius.circular(8),
@@ -711,7 +773,10 @@ class _CerdaScreenState extends State<CerdaScreen> {
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
                               decoration: BoxDecoration(
                                 color: colorProximidad.withOpacity(0.1),
                                 borderRadius: BorderRadius.circular(12),
@@ -727,14 +792,18 @@ class _CerdaScreenState extends State<CerdaScreen> {
                               ),
                             ),
                             IconButton(
-                              icon: const Icon(Icons.delete, color: Colors.red, size: 20),
+                              icon: const Icon(
+                                Icons.delete,
+                                color: Colors.red,
+                                size: 20,
+                              ),
                               onPressed: () => _eliminarPrenez(index),
                             ),
                           ],
                         ),
                         onTap: () => _alternarExpansionPrenez(index),
                       ),
-                      
+
                       // CONTENIDO DESPLEGABLE - SIEMPRE VISIBLE CUANDO EXPANDIDO
                       if (estaExpandida)
                         Padding(
@@ -743,72 +812,107 @@ class _CerdaScreenState extends State<CerdaScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               // INFORMACIÓN VISIBLE DIRECTAMENTE
-                              _buildInfoItem("Fecha de prenez", _mostrarFecha(prenez['fecha_prenez'])),
+                              _buildInfoItem(
+                                "Fecha de prenez",
+                                _mostrarFecha(prenez['fecha_prenez']),
+                              ),
                               const SizedBox(height: 16),
-                              
+
                               if (fechaPartoCalculado != null)
                                 Column(
                                   children: [
-                                    _buildInfoItem("Fecha parto calculada", _mostrarFecha(fechaPartoCalculado)),
+                                    _buildInfoItem(
+                                      "Fecha parto calculada",
+                                      _mostrarFecha(fechaPartoCalculado),
+                                    ),
                                     const SizedBox(height: 16),
                                   ],
                                 ),
-                              
-                              _buildInfoItem("Fecha real de parto", _mostrarFecha(prenez['fecha_parto'])),
+
+                              _buildInfoItem(
+                                "Fecha real de parto",
+                                _mostrarFecha(prenez['fecha_parto']),
+                              ),
                               const SizedBox(height: 16),
-                              
-                              _buildInfoItem("Número de lechones", "${prenez['num_lechones'] ?? 0} lechones"),
+
+                              _buildInfoItem(
+                                "Número de lechones",
+                                "${prenez['num_lechones'] ?? 0} lechones",
+                              ),
                               const SizedBox(height: 16),
-                              
-                              if (prenez['observaciones'] != null && prenez['observaciones'].isNotEmpty)
+
+                              if (prenez['observaciones'] != null &&
+                                  prenez['observaciones'].isNotEmpty)
                                 Column(
                                   children: [
-                                    _buildInfoItem("Observaciones", prenez['observaciones']),
+                                    _buildInfoItem(
+                                      "Observaciones",
+                                      prenez['observaciones'],
+                                    ),
                                     const SizedBox(height: 16),
                                   ],
                                 ),
-                              
+
                               // BOTONES PARA EDITAR
                               Row(
                                 children: [
                                   Expanded(
                                     child: ElevatedButton.icon(
-                                      onPressed: () => _seleccionarFechaPrenez(index),
-                                      icon: const Icon(Icons.calendar_today, size: 16),
+                                      onPressed: () =>
+                                          _seleccionarFechaPrenez(index),
+                                      icon: const Icon(
+                                        Icons.calendar_today,
+                                        size: 16,
+                                      ),
                                       label: const Text("Editar fecha prenez"),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color.fromARGB(255, 212, 86, 191),
+                                        backgroundColor: const Color.fromARGB(
+                                          255,
+                                          212,
+                                          86,
+                                          191,
+                                        ),
                                       ),
                                     ),
                                   ),
                                   const SizedBox(width: 8),
                                   Expanded(
                                     child: ElevatedButton.icon(
-                                      onPressed: () => _seleccionarFechaParto(index),
-                                      icon: const Icon(Icons.calendar_today, size: 16),
+                                      onPressed: () =>
+                                          _seleccionarFechaParto(index),
+                                      icon: const Icon(
+                                        Icons.calendar_today,
+                                        size: 16,
+                                      ),
                                       label: const Text("Editar fecha parto"),
                                       style: ElevatedButton.styleFrom(
-                                        backgroundColor: const Color.fromARGB(255, 86, 156, 212),
+                                        backgroundColor: const Color.fromARGB(
+                                          255,
+                                          86,
+                                          156,
+                                          212,
+                                        ),
                                       ),
                                     ),
                                   ),
                                 ],
                               ),
                               const SizedBox(height: 16),
-                              
+
                               // CAMPO PARA EDITAR NÚMERO DE LECHONES
                               TextFormField(
-                                initialValue: prenez['num_lechones']?.toString(),
+                                initialValue: prenez['num_lechones']
+                                    ?.toString(),
                                 decoration: const InputDecoration(
                                   labelText: "Número de lechones nacidos",
                                   border: OutlineInputBorder(),
                                 ),
                                 keyboardType: TextInputType.number,
-                                onChanged: (val) =>
-                                    prenez['num_lechones'] = int.tryParse(val) ?? 0,
+                                onChanged: (val) => prenez['num_lechones'] =
+                                    int.tryParse(val) ?? 0,
                               ),
                               const SizedBox(height: 16),
-                              
+
                               // CAMPO PARA OBSERVACIONES
                               TextFormField(
                                 initialValue: prenez['observaciones'],
@@ -817,7 +921,8 @@ class _CerdaScreenState extends State<CerdaScreen> {
                                   border: OutlineInputBorder(),
                                 ),
                                 maxLines: 2,
-                                onChanged: (val) => prenez['observaciones'] = val,
+                                onChanged: (val) =>
+                                    prenez['observaciones'] = val,
                               ),
                             ],
                           ),
@@ -833,13 +938,18 @@ class _CerdaScreenState extends State<CerdaScreen> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text("Vacunas 💉",
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                  const Text(
+                    "Vacunas 💉",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
                   ElevatedButton.icon(
-                      onPressed: _agregarVacuna,
-                      icon: const Icon(Icons.add, size: 18),
-                      label: const Text("Agregar"),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color.fromARGB(255, 212, 86, 191))),
+                    onPressed: _agregarVacuna,
+                    icon: const Icon(Icons.add, size: 18),
+                    label: const Text("Agregar"),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color.fromARGB(255, 212, 86, 191),
+                    ),
+                  ),
                 ],
               ),
               const SizedBox(height: 12),
@@ -862,9 +972,11 @@ class _CerdaScreenState extends State<CerdaScreen> {
                                   labelText: "Nombre vacuna",
                                   border: OutlineInputBorder(),
                                 ),
-                                validator: (val) =>
-                                    val == null || val.isEmpty ? 'Ingrese nombre' : null,
-                                onChanged: (val) => vacuna['nombre'] = val.trim(),
+                                validator: (val) => val == null || val.isEmpty
+                                    ? 'Ingrese nombre'
+                                    : null,
+                                onChanged: (val) =>
+                                    vacuna['nombre'] = val.trim(),
                               ),
                             ),
                             IconButton(
@@ -891,14 +1003,15 @@ class _CerdaScreenState extends State<CerdaScreen> {
                             const SizedBox(width: 12),
                             Expanded(
                               child: TextFormField(
-                                initialValue: vacuna['frecuencia_dias']?.toString(),
+                                initialValue: vacuna['frecuencia_dias']
+                                    ?.toString(),
                                 decoration: const InputDecoration(
                                   labelText: "Frecuencia (días)",
                                   border: OutlineInputBorder(),
                                 ),
                                 keyboardType: TextInputType.number,
-                                onChanged: (val) =>
-                                    vacuna['frecuencia_dias'] = int.tryParse(val) ?? 30,
+                                onChanged: (val) => vacuna['frecuencia_dias'] =
+                                    int.tryParse(val) ?? 30,
                               ),
                             ),
                           ],
@@ -915,16 +1028,20 @@ class _CerdaScreenState extends State<CerdaScreen> {
                 child: ElevatedButton.icon(
                   onPressed: _guardando ? null : _guardarCerda,
                   style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.pink,
-                      padding: const EdgeInsets.symmetric(vertical: 16)),
+                    backgroundColor: Colors.pink,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                  ),
                   icon: _guardando
                       ? const SizedBox(
                           width: 20,
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ))
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
+                        )
                       : const Icon(Icons.save),
                   label: Text(
                     _guardando ? "Guardando..." : "Guardar cambios",

@@ -20,13 +20,16 @@ class NotificationService {
         requestSoundPermission: true,
       );
 
-      final settings = InitializationSettings(android: androidInit, iOS: iosInit);
+      final settings = InitializationSettings(
+        android: androidInit,
+        iOS: iosInit,
+      );
 
       await _plugin.initialize(
         settings,
         onDidReceiveNotificationResponse: (NotificationResponse response) {},
       );
-      
+
       print('✅ NotificationService inicializado');
     } catch (e) {
       print('❌ Error inicializando NotificationService: $e');
@@ -37,7 +40,7 @@ class NotificationService {
   static Future<void> programarNotificacionesAutomaticas() async {
     try {
       print('🔔 Programando notificaciones automáticas...');
-      
+
       final cerdas = await SowService.obtenerCerdas();
       final ahora = tz.TZDateTime.now(tz.local);
 
@@ -80,14 +83,20 @@ class NotificationService {
         final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
         for (var vacuna in vacunas) {
           if (vacuna is Map) {
-            final dosisProgramadas = vacuna['dosis_programadas'] as List<dynamic>? ?? [];
+            final dosisProgramadas =
+                vacuna['dosis_programadas'] as List<dynamic>? ?? [];
             for (var dosis in dosisProgramadas) {
               if (dosis is Map) {
                 final fechaVacunaStr = dosis['fecha'];
                 if (fechaVacunaStr != null) {
                   try {
-                    final fechaVacuna = DateTime.parse(fechaVacunaStr.toString());
-                    final tzFechaVacuna = tz.TZDateTime.from(fechaVacuna, tz.local);
+                    final fechaVacuna = DateTime.parse(
+                      fechaVacunaStr.toString(),
+                    );
+                    final tzFechaVacuna = tz.TZDateTime.from(
+                      fechaVacuna,
+                      tz.local,
+                    );
                     final nombreVacuna = vacuna['nombre'] ?? 'Vacuna';
                     final numDosis = dosis['numero_dosis'] ?? 1;
 
@@ -130,9 +139,7 @@ class NotificationService {
             priority: Priority.high,
             playSound: true,
           ),
-          iOS: DarwinNotificationDetails(
-            sound: 'default',
-          ),
+          iOS: DarwinNotificationDetails(sound: 'default'),
         ),
       );
       print('✅ Notificación de prueba mostrada');
@@ -164,9 +171,7 @@ class NotificationService {
             priority: Priority.high,
             playSound: true,
           ),
-          iOS: DarwinNotificationDetails(
-            sound: 'default',
-          ),
+          iOS: DarwinNotificationDetails(sound: 'default'),
         ),
         androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
         uiLocalNotificationDateInterpretation:
@@ -192,7 +197,8 @@ class NotificationService {
         if (item is Map && item['type'] == 'sow') {
           // Partos próximos
           final fechaPartoStr = item['fecha_parto_calculado'];
-          if (fechaPartoStr != null && (item['notificado_parto'] ?? false) == false) {
+          if (fechaPartoStr != null &&
+              (item['notificado_parto'] ?? false) == false) {
             final fechaParto = DateTime.tryParse(fechaPartoStr.toString());
             if (fechaParto != null) {
               final diffDias = fechaParto.difference(ahora).inDays;
@@ -211,13 +217,14 @@ class NotificationService {
           final vacunas = item['vacunas'] as List? ?? [];
           for (var vacuna in vacunas) {
             if (vacuna is! Map) continue;
-            
+
             final dosisProgramadas = vacuna['dosis_programadas'] as List? ?? [];
             for (var dosis in dosisProgramadas) {
               if (dosis is! Map) continue;
-              
+
               final fechaStr = dosis['fecha']?.toString();
-              if (fechaStr == null || (dosis['notificado'] ?? false) == true) continue;
+              if (fechaStr == null || (dosis['notificado'] ?? false) == true)
+                continue;
 
               final fechaDosis = DateTime.tryParse(fechaStr);
               if (fechaDosis == null) continue;
@@ -239,14 +246,18 @@ class NotificationService {
           // Confirmación de preñez - CORREGIDO
           final estado = (item['estado'] ?? '').toString().toLowerCase();
           final fechaPrenezStr = item['fecha_prenez'];
-          if (estado.contains('preñada') && 
-              fechaPrenezStr != null && 
+          if (estado.contains('preñada') &&
+              fechaPrenezStr != null &&
               (item['notificado_prenez'] ?? false) == false) {
-            
-            final fechaInseminacion = DateTime.tryParse(fechaPrenezStr.toString());
+            final fechaInseminacion = DateTime.tryParse(
+              fechaPrenezStr.toString(),
+            );
             if (fechaInseminacion != null) {
-              final fechaConfirmacion = fechaInseminacion.add(const Duration(days: 21));
-              if (ahora.isAfter(fechaConfirmacion) || ahora.isAtSameMomentAs(fechaConfirmacion)) {
+              final fechaConfirmacion = fechaInseminacion.add(
+                const Duration(days: 21),
+              );
+              if (ahora.isAfter(fechaConfirmacion) ||
+                  ahora.isAtSameMomentAs(fechaConfirmacion)) {
                 notificaciones.add({
                   'tipo': 'confirmar_preñez',
                   'cerda': item,
@@ -259,8 +270,10 @@ class NotificationService {
       }
 
       // Ordenar por fecha más próxima
-      notificaciones.sort((a, b) => (a['fecha'] as DateTime).compareTo(b['fecha'] as DateTime));
-      
+      notificaciones.sort(
+        (a, b) => (a['fecha'] as DateTime).compareTo(b['fecha'] as DateTime),
+      );
+
       print('🔔 Notificaciones encontradas: ${notificaciones.length}');
       return notificaciones;
     } catch (e) {
@@ -289,7 +302,7 @@ class NotificationService {
           final cerda = noti['cerda'] as Map<String, dynamic>;
           final nombre = cerda['nombre']?.toString() ?? 'Sin nombre';
           final fecha = noti['fecha'] as DateTime;
-          
+
           // Programar para las 9:00 AM del día correspondiente
           final scheduledDate = tz.TZDateTime(
             tz.local,
@@ -306,29 +319,28 @@ class NotificationService {
           if (tipo == 'parto') {
             final dias = noti['dias_restantes'] ?? 0;
             titulo = 'Parto próximo 🐷';
-            cuerpo = dias == 0 
-                ? '$nombre tiene parto hoy!' 
+            cuerpo = dias == 0
+                ? '$nombre tiene parto hoy!'
                 : '$nombre tiene parto en $dias días';
-            
+
             // Marcar como notificado
             cerda['notificado_parto'] = true;
-            
           } else if (tipo == 'vacuna') {
             final vacuna = noti['vacuna'] as Map<String, dynamic>? ?? {};
             final dosis = noti['dosis'] as Map<String, dynamic>? ?? {};
             final vacunaNombre = vacuna['nombre']?.toString() ?? 'Vacuna';
             final dosisNum = dosis['numero_dosis']?.toString() ?? '';
-            
+
             titulo = 'Vacuna pendiente 💉';
-            cuerpo = '$nombre - $vacunaNombre ${dosisNum.isNotEmpty ? '- Dosis $dosisNum' : ''}';
-            
+            cuerpo =
+                '$nombre - $vacunaNombre ${dosisNum.isNotEmpty ? '- Dosis $dosisNum' : ''}';
+
             // Marcar como notificado
             dosis['notificado'] = true;
-            
           } else if (tipo == 'confirmar_preñez') {
             titulo = 'Confirmar preñez 🐷';
             cuerpo = 'Confirma si $nombre quedó preñada (21 días después)';
-            
+
             // Marcar como notificado
             cerda['notificado_prenez'] = true;
           }
@@ -343,14 +355,13 @@ class NotificationService {
                 android: AndroidNotificationDetails(
                   'general_channel',
                   'Notificaciones My Porki',
-                  channelDescription: 'Recordatorios de partos, vacunas y preñez',
+                  channelDescription:
+                      'Recordatorios de partos, vacunas y preñez',
                   importance: Importance.max,
                   priority: Priority.high,
                   playSound: true,
                 ),
-                iOS: const DarwinNotificationDetails(
-                  sound: 'default',
-                ),
+                iOS: const DarwinNotificationDetails(sound: 'default'),
               ),
             );
             print('📱 Notificación mostrada: $titulo');
@@ -365,20 +376,21 @@ class NotificationService {
                 android: AndroidNotificationDetails(
                   'general_channel',
                   'Notificaciones My Porki',
-                  channelDescription: 'Recordatorios de partos, vacunas y preñez',
+                  channelDescription:
+                      'Recordatorios de partos, vacunas y preñez',
                   importance: Importance.max,
                   priority: Priority.high,
                   playSound: true,
                 ),
-                iOS: const DarwinNotificationDetails(
-                  sound: 'default',
-                ),
+                iOS: const DarwinNotificationDetails(sound: 'default'),
               ),
               androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
               uiLocalNotificationDateInterpretation:
                   UILocalNotificationDateInterpretation.absoluteTime,
             );
-            print('⏰ Notificación programada: $titulo para ${scheduledDate.toString()}');
+            print(
+              '⏰ Notificación programada: $titulo para ${scheduledDate.toString()}',
+            );
           }
 
           // Guardar cambios en Hive para que no se repita la notificación
@@ -408,10 +420,11 @@ class NotificationService {
   }
 
   /// Obtener notificaciones pendientes para la pantalla de notificaciones
-  static Future<List<Map<String, dynamic>>> getNotificacionesParaPantalla() async {
+  static Future<List<Map<String, dynamic>>>
+  getNotificacionesParaPantalla() async {
     try {
       final notis = await getNotificaciones();
-      
+
       // Formatear para mostrar en la UI
       return notis.map((noti) {
         final tipo = noti['tipo'];
@@ -419,15 +432,15 @@ class NotificationService {
         final nombre = cerda['nombre']?.toString() ?? 'Sin nombre';
         final fecha = noti['fecha'] as DateTime;
         final diasRestantes = noti['dias_restantes'];
-        
+
         String titulo = '';
         String descripcion = '';
         String icono = '';
 
         if (tipo == 'parto') {
           titulo = 'Parto próximo';
-          descripcion = diasRestantes == 0 
-              ? '$nombre tiene parto hoy' 
+          descripcion = diasRestantes == 0
+              ? '$nombre tiene parto hoy'
               : '$nombre tiene parto en $diasRestantes días';
           icono = '🐷';
         } else if (tipo == 'vacuna') {
@@ -435,9 +448,10 @@ class NotificationService {
           final dosis = noti['dosis'] as Map<String, dynamic>? ?? {};
           final vacunaNombre = vacuna['nombre']?.toString() ?? 'Vacuna';
           final dosisNum = dosis['numero_dosis']?.toString() ?? '';
-          
+
           titulo = 'Vacuna pendiente';
-          descripcion = '$nombre - $vacunaNombre ${dosisNum.isNotEmpty ? '(Dosis $dosisNum)' : ''}';
+          descripcion =
+              '$nombre - $vacunaNombre ${dosisNum.isNotEmpty ? '(Dosis $dosisNum)' : ''}';
           icono = '💉';
         } else if (tipo == 'confirmar_preñez') {
           titulo = 'Confirmar preñez';

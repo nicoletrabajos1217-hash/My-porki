@@ -15,9 +15,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   // 🔹 Inicialización Firebase
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
 
   // 🔹 Inicialización Hive
   await Hive.initFlutter();
@@ -147,14 +145,16 @@ class _AppEntryPointState extends State<AppEntryPoint> {
       Navigator.of(context).pushReplacement(
         MaterialPageRoute(
           builder: (_) => HomeScreen(
-            userData: userData ?? {'username': 'Usuario', 'email': '', 'role': 'usuario'},
+            userData:
+                userData ??
+                {'username': 'Usuario', 'email': '', 'role': 'usuario'},
           ),
         ),
       );
     } else {
-      Navigator.of(context).pushReplacement(
-        MaterialPageRoute(builder: (_) => const LoginScreen()),
-      );
+      Navigator.of(
+        context,
+      ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
     }
   }
 
@@ -168,7 +168,9 @@ class _AppEntryPointState extends State<AppEntryPoint> {
       // 🔹 Programar todas las notificaciones: partos, vacunas y preñez
       await NotificationService.scheduleAllNotifications();
 
-      _connectivitySubscription = _connectivityService.connectionStream.listen((hasConnection) async {
+      _connectivitySubscription = _connectivityService.connectionStream.listen((
+        hasConnection,
+      ) async {
         if (hasConnection) {
           await _syncService.syncAllPending();
           await NotificationService.scheduleAllNotifications();
@@ -236,7 +238,11 @@ class _SplashScreenState extends State<SplashScreen> {
             const SizedBox(height: 20),
             const Text(
               'My Porki',
-              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.pink),
+              style: TextStyle(
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+                color: Colors.pink,
+              ),
             ),
             const SizedBox(height: 10),
             Text(

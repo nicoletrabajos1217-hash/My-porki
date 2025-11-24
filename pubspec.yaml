@@ -37,6 +37,10 @@ dependencies:
   flutter_local_notifications: ^17.1.2
   timezone: ^0.9.0
   crypto: ^3.0.0
+  
+  # AGREGADAS: Dependencias para PDF (SOLO ESTAS SE AGREGARON)
+  pdf: ^3.10.4
+  printing: ^5.11.1
 
 dev_dependencies:
   flutter_test:

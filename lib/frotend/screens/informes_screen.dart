@@ -10,7 +10,8 @@ class InformesScreen extends StatefulWidget {
 }
 
 class _InformesScreenState extends State<InformesScreen> {
-  bool _exportando = false;
+  bool _exportandoExcel = false;
+  bool _exportandoPDF = false;
   Map<String, dynamic> _estadisticas = {};
   String _ultimoError = '';
 
@@ -38,30 +39,30 @@ class _InformesScreenState extends State<InformesScreen> {
     }
   }
 
-  Future<void> _exportarInforme() async {
+  Future<void> _exportarExcel() async {
     setState(() {
-      _exportando = true;
+      _exportandoExcel = true;
       _ultimoError = '';
     });
-    
+
     try {
-      print('🟡 Iniciando exportación desde la UI...');
+      print('🟡 Iniciando exportación Excel desde la UI...');
       final filePath = await ExportService.exportCerdasToExcel();
-      
+
       if (filePath != null && mounted) {
-        print('✅ Archivo generado: $filePath');
-        
+        print('✅ Archivo Excel generado: $filePath');
+
         // Intentar abrir el archivo
         final result = await OpenFile.open(filePath);
         print('🔍 Resultado de abrir archivo: $result');
-        
+
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Text('✅ Informe exportado correctamente'),
+                const Text('✅ Informe Excel exportado correctamente'),
                 Text(
                   'Archivo: ${filePath.split('/').last}',
                   style: const TextStyle(fontSize: 12),
@@ -78,31 +79,99 @@ class _InformesScreenState extends State<InformesScreen> {
         );
       } else if (mounted) {
         setState(() {
-          _ultimoError = 'El servicio de exportación retornó null';
+          _ultimoError = 'El servicio de exportación Excel retornó null';
         });
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('❌ Error al exportar el informe (null)'),
+            content: Text('❌ Error al exportar el informe Excel (null)'),
             backgroundColor: Colors.red,
           ),
         );
       }
     } catch (e) {
-      print('❌ Error en exportarInforme: $e');
+      print('❌ Error en exportarExcel: $e');
       if (mounted) {
         setState(() {
-          _ultimoError = 'Error: $e';
+          _ultimoError = 'Error Excel: $e';
         });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('❌ Error: ${e.toString()}'),
+            content: Text('❌ Error Excel: ${e.toString()}'),
             backgroundColor: Colors.red,
             duration: const Duration(seconds: 5),
           ),
         );
       }
     } finally {
-      if (mounted) setState(() => _exportando = false);
+      if (mounted) setState(() => _exportandoExcel = false);
+    }
+  }
+
+  Future<void> _exportarPDF() async {
+    setState(() {
+      _exportandoPDF = true;
+      _ultimoError = '';
+    });
+
+    try {
+      print('🟡 Iniciando exportación PDF desde la UI...');
+      final filePath = await ExportService.exportCerdasToPDF();
+
+      if (filePath != null && mounted) {
+        print('✅ Archivo PDF generado: $filePath');
+
+        // Opción para compartir el PDF
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text('✅ Informe PDF generado correctamente'),
+                Text(
+                  'Archivo: ${filePath.split('/').last}',
+                  style: const TextStyle(fontSize: 12),
+                ),
+              ],
+            ),
+            backgroundColor: Colors.blue,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Compartir',
+              onPressed: () => ExportService.compartirPDF(filePath),
+            ),
+          ),
+        );
+
+        // También ofrecer abrir el archivo
+        await OpenFile.open(filePath);
+      } else if (mounted) {
+        setState(() {
+          _ultimoError = 'El servicio de exportación PDF retornó null';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('❌ Error al generar el PDF (null)'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    } catch (e) {
+      print('❌ Error en exportarPDF: $e');
+      if (mounted) {
+        setState(() {
+          _ultimoError = 'Error PDF: $e';
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('❌ Error PDF: ${e.toString()}'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _exportandoPDF = false);
     }
   }
 
@@ -143,7 +212,7 @@ class _InformesScreenState extends State<InformesScreen> {
         title: const Text('Informes y Exportación'),
         backgroundColor: Colors.pink,
       ),
-      body: Padding(
+      body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -179,17 +248,20 @@ class _InformesScreenState extends State<InformesScreen> {
                     const Icon(Icons.analytics, size: 60, color: Colors.pink),
                     const SizedBox(height: 16),
                     const Text(
-                      'Generar Informe Completo',
-                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                      'Generar Informes',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(height: 8),
                     const Text(
-                      'Exporta todos los datos de tus cerdas a un archivo Excel para análisis externo, backup o compartir.',
+                      'Exporta todos los datos de tus cerdas en diferentes formatos según tus necesidades.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Colors.grey, fontSize: 14),
                     ),
                     const SizedBox(height: 20),
-                    
+
                     // Información de debug
                     if (_estadisticas.isNotEmpty)
                       Card(
@@ -198,38 +270,108 @@ class _InformesScreenState extends State<InformesScreen> {
                           padding: const EdgeInsets.all(8.0),
                           child: Text(
                             '📊 ${_estadisticas['totalCerdas'] ?? 0} cerdas listas para exportar',
-                            style: const TextStyle(fontSize: 12, color: Colors.blue),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Colors.blue,
+                            ),
                             textAlign: TextAlign.center,
                           ),
                         ),
                       ),
-                    
-                    const SizedBox(height: 12),
-                    
-                    ElevatedButton.icon(
-                      onPressed: _exportando ? null : _exportarInforme,
-                      icon: _exportando 
-                          ? const SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+
+                    const SizedBox(height: 16),
+
+                    // BOTONES DE EXPORTACIÓN
+                    Row(
+                      children: [
+                        // Botón Excel
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _exportandoExcel ? null : _exportarExcel,
+                            icon: _exportandoExcel
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.table_chart),
+                            label: Text(
+                              _exportandoExcel ? 'Exportando...' : 'Excel',
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.green,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
                               ),
-                            )
-                          : const Icon(Icons.file_download),
-                      label: Text(_exportando ? 'Exportando...' : 'Descargar Excel'),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: Colors.green,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                      ),
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(width: 12),
+
+                        // Botón PDF
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _exportandoPDF ? null : _exportarPDF,
+                            icon: _exportandoPDF
+                                ? const SizedBox(
+                                    width: 16,
+                                    height: 16,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
+                                      valueColor: AlwaysStoppedAnimation<Color>(
+                                        Colors.white,
+                                      ),
+                                    ),
+                                  )
+                                : const Icon(Icons.picture_as_pdf),
+                            label: Text(
+                              _exportandoPDF ? 'Generando...' : 'PDF',
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
-                    
+
+                    const SizedBox(height: 12),
+
+                    // Información sobre formatos
+                    const Row(
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Colors.grey),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Excel: Para análisis externo • PDF: Para compartir e imprimir',
+                            style: TextStyle(fontSize: 11, color: Colors.grey),
+                          ),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 8),
+
                     // Botón de debug para ver logs
                     TextButton(
                       onPressed: () {
-                        print('🔍 DEBUG: Estadísticas actuales: $_estadisticas');
+                        print(
+                          '🔍 DEBUG: Estadísticas actuales: $_estadisticas',
+                        );
                         print('🔍 DEBUG: Último error: $_ultimoError');
                       },
                       child: const Text(
@@ -260,24 +402,24 @@ class _InformesScreenState extends State<InformesScreen> {
               childAspectRatio: 1.2,
               children: [
                 _buildEstadisticaCard(
-                  'Total Cerdas', 
-                  _estadisticas['totalCerdas'] ?? '0', 
-                  '🐖'
+                  'Total Cerdas',
+                  _estadisticas['totalCerdas'] ?? '0',
+                  '🐖',
                 ),
                 _buildEstadisticaCard(
-                  'Preñadas', 
-                  _estadisticas['prenadas'] ?? '0', 
-                  '🐷'
+                  'Preñadas',
+                  _estadisticas['prenadas'] ?? '0',
+                  '🐷',
                 ),
                 _buildEstadisticaCard(
-                  'Total Lechones', 
-                  _estadisticas['totalLechones'] ?? '0', 
-                  '🐽'
+                  'Total Lechones',
+                  _estadisticas['totalLechones'] ?? '0',
+                  '🐽',
                 ),
                 _buildEstadisticaCard(
-                  'Vacunas Pendientes', 
-                  _estadisticas['vacunasPendientes'] ?? '0', 
-                  '💉'
+                  'Vacunas Pendientes',
+                  _estadisticas['vacunasPendientes'] ?? '0',
+                  '💉',
                 ),
               ],
             ),

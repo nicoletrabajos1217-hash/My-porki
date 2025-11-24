@@ -25,12 +25,13 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
     });
 
     try {
-      final result = await AuthService.resetPassword(_emailController.text.trim());
-      
+      final result = await AuthService.resetPassword(
+        _emailController.text.trim(),
+      );
+
       // Manejo simple y directo
       _isSuccess = true;
       _message = 'Se ha enviado un enlace de recuperación a tu correo';
-      
     } catch (e) {
       _isSuccess = false;
       _message = 'Error: $e';
@@ -95,7 +96,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
-                    color: _isSuccess ? Colors.green.shade50 : Colors.red.shade50,
+                    color: _isSuccess
+                        ? Colors.green.shade50
+                        : Colors.red.shade50,
                     border: Border.all(
                       color: _isSuccess ? Colors.green : Colors.red,
                     ),
@@ -123,7 +126,9 @@ class _ForgotPasswordScreenState extends State<ForgotPasswordScreen> {
                           height: 20,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
                           ),
                         )
                       : const Text(

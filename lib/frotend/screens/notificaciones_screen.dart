@@ -42,8 +42,12 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
             if (fechaPartoStr != null) {
               try {
                 final fechaParto = DateTime.parse(fechaPartoStr.toString());
-                final fechaPartoHoy = DateTime(fechaParto.year, fechaParto.month, fechaParto.day);
-                
+                final fechaPartoHoy = DateTime(
+                  fechaParto.year,
+                  fechaParto.month,
+                  fechaParto.day,
+                );
+
                 if (fechaPartoHoy == hoy) {
                   _partosHoy.add({
                     'cerda': cerda,
@@ -65,25 +69,33 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
         final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
         for (var vacuna in vacunas) {
           if (vacuna is Map) {
-            final dosisProgramadas = vacuna['dosis_programadas'] as List<dynamic>? ?? [];
+            final dosisProgramadas =
+                vacuna['dosis_programadas'] as List<dynamic>? ?? [];
             for (var dosis in dosisProgramadas) {
               if (dosis is Map) {
                 final fechaVacunaStr = dosis['fecha'];
                 if (fechaVacunaStr != null) {
                   try {
-                    final fechaVacuna = DateTime.parse(fechaVacunaStr.toString());
-                    final fechaVacunaHoy = DateTime(fechaVacuna.year, fechaVacuna.month, fechaVacuna.day);
-                    
+                    final fechaVacuna = DateTime.parse(
+                      fechaVacunaStr.toString(),
+                    );
+                    final fechaVacunaHoy = DateTime(
+                      fechaVacuna.year,
+                      fechaVacuna.month,
+                      fechaVacuna.day,
+                    );
+
                     if (fechaVacunaHoy == hoy) {
                       final numDosis = dosis['numero_dosis'] ?? 1;
                       final nombreVacuna = vacuna['nombre'] ?? 'Vacuna';
-                      
+
                       _vacunasHoy.add({
                         'cerda': cerda,
                         'fecha': fechaVacuna,
                         'dias_restantes': 0,
                         'tipo': 'vacuna_hoy',
-                        'mensaje': '$nombreVacuna (Dosis $numDosis) para $nombre',
+                        'mensaje':
+                            '$nombreVacuna (Dosis $numDosis) para $nombre',
                         'prioridad': 'media',
                       });
                     }
@@ -130,15 +142,14 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
       setState(() {
         _isLoading = false;
       });
-      
+
       print('🔔 Notificaciones cargadas:');
       print('   - ${_partosHoy.length} partos hoy');
       print('   - ${_vacunasHoy.length} vacunas hoy');
       print('   - ${_partosProximos.length} partos próximos');
-      
+
       // Programar notificaciones push automáticas
       await NotificationService.programarNotificacionesAutomaticas();
-      
     } catch (e) {
       print('❌ Error cargando notificaciones: $e');
       setState(() {
@@ -197,17 +208,10 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
       elevation: 2,
       color: _getColorByPriority(prioridad).withOpacity(0.1),
       child: ListTile(
-        leading: Icon(
-          icono,
-          color: color,
-          size: 30,
-        ),
+        leading: Icon(icono, color: color, size: 30),
         title: Text(
           titulo,
-          style: TextStyle(
-            fontWeight: FontWeight.bold,
-            color: color,
-          ),
+          style: TextStyle(fontWeight: FontWeight.bold, color: color),
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -247,7 +251,10 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
     }
   }
 
-  Widget _buildSeccion(String titulo, List<Map<String, dynamic>> notificaciones) {
+  Widget _buildSeccion(
+    String titulo,
+    List<Map<String, dynamic>> notificaciones,
+  ) {
     if (notificaciones.isEmpty) {
       return Container();
     }
@@ -284,8 +291,12 @@ class _NotificacionesScreenState extends State<NotificacionesScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final todasLasNotificaciones = [..._partosHoy, ..._vacunasHoy, ..._partosProximos];
-    
+    final todasLasNotificaciones = [
+      ..._partosHoy,
+      ..._vacunasHoy,
+      ..._partosProximos,
+    ];
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('Recordatorios 🐷'),

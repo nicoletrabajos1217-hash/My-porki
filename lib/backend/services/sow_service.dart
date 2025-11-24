@@ -25,8 +25,9 @@ class SowService {
           ? idCtrl
           : 'sow_${DateTime.now().millisecondsSinceEpoch}';
       final bool prenada = fechaPrenez != null;
-      final fechaPartoCalculado =
-          prenada ? fechaPrenez.add(const Duration(days: 114)) : null;
+      final fechaPartoCalculado = prenada
+          ? fechaPrenez.add(const Duration(days: 114))
+          : null;
 
       final vacunasProcesadas = _procesarVacunas(vacunas);
 
@@ -85,17 +86,19 @@ class SowService {
         fechaPartoCalculado = fechaPrenez.add(const Duration(days: 114));
       } else {
         final fExist = DateTime.tryParse(cerda['fecha_prenez'] ?? '');
-        fechaPartoCalculado =
-            fExist != null ? fExist.add(const Duration(days: 114)) : null;
+        fechaPartoCalculado = fExist != null
+            ? fExist.add(const Duration(days: 114))
+            : null;
       }
 
       // VACUNAS
       final vacunasProcesadas = _procesarVacunas(vacunas, cerda);
 
       // CORRECCIÓN REAL DEL ESTADO - LÓGICA SIMPLIFICADA
-      final estadoFinal = estado ?? 
-          ((fechaPrenez != null || cerda['fecha_prenez'] != null) 
-              ? 'Preñada' 
+      final estadoFinal =
+          estado ??
+          ((fechaPrenez != null || cerda['fecha_prenez'] != null)
+              ? 'Preñada'
               : 'No preñada');
 
       // OBJETO ACTUALIZADO
@@ -104,7 +107,8 @@ class SowService {
         'nombre': nombre ?? cerda['nombre'],
         'fecha_prenez': fechaPrenez?.toIso8601String() ?? cerda['fecha_prenez'],
         'fecha_parto_calculado': fechaPartoCalculado?.toIso8601String(),
-        'partos': partos ?? List<Map<String, dynamic>>.from(cerda['partos'] ?? []),
+        'partos':
+            partos ?? List<Map<String, dynamic>>.from(cerda['partos'] ?? []),
         'vacunas': vacunasProcesadas.isNotEmpty
             ? vacunasProcesadas
             : List<Map<String, dynamic>>.from(cerda['vacunas'] ?? []),
@@ -161,8 +165,11 @@ class SowService {
                 orElse: () => {},
               );
 
-          if (vacExistente.isNotEmpty && vacExistente['dosis_programadas'] != null) {
-            dosisProgramadas = List<Map<String, dynamic>>.from(vacExistente['dosis_programadas']);
+          if (vacExistente.isNotEmpty &&
+              vacExistente['dosis_programadas'] != null) {
+            dosisProgramadas = List<Map<String, dynamic>>.from(
+              vacExistente['dosis_programadas'],
+            );
           }
         }
 
@@ -229,8 +236,10 @@ class SowService {
 
       // Ordenar por fecha de creación (más reciente primero)
       cerdas.sort((a, b) {
-        final fechaA = DateTime.tryParse(a['fecha_creacion'] ?? '') ?? DateTime.now();
-        final fechaB = DateTime.tryParse(b['fecha_creacion'] ?? '') ?? DateTime.now();
+        final fechaA =
+            DateTime.tryParse(a['fecha_creacion'] ?? '') ?? DateTime.now();
+        final fechaB =
+            DateTime.tryParse(b['fecha_creacion'] ?? '') ?? DateTime.now();
         return fechaB.compareTo(fechaA);
       });
 
@@ -264,7 +273,9 @@ class SowService {
   }
 
   /// OBTENER PARTOS PRÓXIMOS
-  static Future<List<Map<String, dynamic>>> obtenerPartosProximos({int dias = 7}) async {
+  static Future<List<Map<String, dynamic>>> obtenerPartosProximos({
+    int dias = 7,
+  }) async {
     final cerdas = await obtenerCerdas();
     final ahora = DateTime.now();
     final proximos = <Map<String, dynamic>>[];
@@ -278,10 +289,7 @@ class SowService {
           final diff = fechaParto.difference(ahora).inDays;
 
           if (diff >= 0 && diff <= dias) {
-            proximos.add({
-              ...cerda,
-              'dias_restantes': diff,
-            });
+            proximos.add({...cerda, 'dias_restantes': diff});
           }
         } catch (e) {
           print('Error parseando fecha parto de ${cerda['nombre']}: $e');
@@ -289,7 +297,10 @@ class SowService {
       }
     }
 
-    proximos.sort((a, b) => (a['dias_restantes'] as int).compareTo(b['dias_restantes'] as int));
+    proximos.sort(
+      (a, b) =>
+          (a['dias_restantes'] as int).compareTo(b['dias_restantes'] as int),
+    );
     return proximos;
   }
 
@@ -299,7 +310,9 @@ class SowService {
     int total = 0;
     for (var parto in partos) {
       final numLechones = parto['num_lechones'];
-      total += numLechones is int ? numLechones : int.tryParse('$numLechones') ?? 0;
+      total += numLechones is int
+          ? numLechones
+          : int.tryParse('$numLechones') ?? 0;
     }
     return total;
   }
@@ -322,11 +335,12 @@ class SowService {
         final estado = (cerda['estado'] ?? '').toString().toLowerCase();
         final fechaPrenez = cerda['fecha_prenez'];
         final fechaPartoCalc = cerda['fecha_parto_calculado'];
-        
-        if (estado.contains('preñ') || 
-            estado.contains('pregnant') || 
+
+        if (estado.contains('preñ') ||
+            estado.contains('pregnant') ||
             fechaPrenez != null ||
-            (fechaPartoCalc != null && DateTime.parse(fechaPartoCalc.toString()).isAfter(ahora))) {
+            (fechaPartoCalc != null &&
+                DateTime.parse(fechaPartoCalc.toString()).isAfter(ahora))) {
           prenadas++;
         }
 
@@ -335,15 +349,17 @@ class SowService {
         for (var parto in partos) {
           if (parto is Map) {
             final numLechones = parto['num_lechones'];
-            totalLechones += (numLechones is int ? numLechones : int.tryParse('$numLechones') ?? 0);
+            totalLechones += (numLechones is int
+                ? numLechones
+                : int.tryParse('$numLechones') ?? 0);
 
             // Contar partos hoy
             final fechaPartoStr = parto['fecha'];
             if (fechaPartoStr != null) {
               try {
                 final fechaParto = DateTime.parse(fechaPartoStr.toString());
-                if (fechaParto.year == ahora.year && 
-                    fechaParto.month == ahora.month && 
+                if (fechaParto.year == ahora.year &&
+                    fechaParto.month == ahora.month &&
                     fechaParto.day == ahora.day) {
                   partosHoy++;
                 }
@@ -370,15 +386,16 @@ class SowService {
         final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
         for (var vac in vacunas) {
           if (vac is Map) {
-            final dosisProgramadas = vac['dosis_programadas'] as List<dynamic>? ?? [];
+            final dosisProgramadas =
+                vac['dosis_programadas'] as List<dynamic>? ?? [];
             for (var dosis in dosisProgramadas) {
               if (dosis is Map) {
                 final fechaVacStr = dosis['fecha'];
                 if (fechaVacStr != null) {
                   try {
                     final fechaVac = DateTime.parse(fechaVacStr.toString());
-                    if (fechaVac.year == ahora.year && 
-                        fechaVac.month == ahora.month && 
+                    if (fechaVac.year == ahora.year &&
+                        fechaVac.month == ahora.month &&
                         fechaVac.day == ahora.day) {
                       vacunasHoy++;
                     }

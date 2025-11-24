@@ -27,7 +27,8 @@ class _HomeScreenState extends State<HomeScreen> {
   late final SyncService _syncService;
   Timer? _syncTimer;
   StreamSubscription<dynamic>? _connectivitySubscription;
-  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _firebaseSubscription;
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
+  _firebaseSubscription;
 
   List<Map<String, dynamic>> _notificaciones = [];
   int _cantidadNotificaciones = 0;
@@ -50,7 +51,7 @@ class _HomeScreenState extends State<HomeScreen> {
   void _debugCerdasData() async {
     final cerdas = await SowService.obtenerCerdas();
     print('🔍 DEBUG - Total cerdas desde SowService: ${cerdas.length}');
-    
+
     for (var cerda in cerdas) {
       print('''
 Cerda: ${cerda['nombre']}
@@ -115,8 +116,12 @@ Cerda: ${cerda['nombre']}
 
       // Orden consistente (opcional)
       normalized.sort((a, b) {
-        final fa = DateTime.tryParse(a['fecha_creacion'] ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final fb = DateTime.tryParse(b['fecha_creacion'] ?? '') ?? DateTime.fromMillisecondsSinceEpoch(0);
+        final fa =
+            DateTime.tryParse(a['fecha_creacion'] ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0);
+        final fb =
+            DateTime.tryParse(b['fecha_creacion'] ?? '') ??
+            DateTime.fromMillisecondsSinceEpoch(0);
         return fb.compareTo(fa);
       });
 
@@ -126,7 +131,9 @@ Cerda: ${cerda['nombre']}
         });
       }
 
-      print('🔁 reloadFromHive: ${_cerdasResumen.length} cerdas cargadas desde Hive');
+      print(
+        '🔁 reloadFromHive: ${_cerdasResumen.length} cerdas cargadas desde Hive',
+      );
     } catch (e) {
       print('❌ Error en _reloadFromHive: $e');
     }
@@ -136,65 +143,86 @@ Cerda: ${cerda['nombre']}
     try {
       final firestore = FirebaseFirestore.instance;
 
-      _firebaseSubscription = firestore.collection('sows').snapshots().listen((snapshot) async {
-        try {
-          final box = _porkiBox ?? await Hive.openBox('porki_data');
+      _firebaseSubscription = firestore
+          .collection('sows')
+          .snapshots()
+          .listen(
+            (snapshot) async {
+              try {
+                final box = _porkiBox ?? await Hive.openBox('porki_data');
 
-          print('🔄 Firebase listener: ${snapshot.docs.length} documentos detectados');
+                print(
+                  '🔄 Firebase listener: ${snapshot.docs.length} documentos detectados',
+                );
 
-          for (var doc in snapshot.docs) {
-            final data = doc.data();
-            final sowId = doc.id;
-            final sowData = {
-              ...data,
-              'id': sowId,
-              'type': 'sow',
-              'synced': true,
-              'lastSync': DateTime.now().toIso8601String(),
-            };
+                for (var doc in snapshot.docs) {
+                  final data = doc.data();
+                  final sowId = doc.id;
+                  final sowData = {
+                    ...data,
+                    'id': sowId,
+                    'type': 'sow',
+                    'synced': true,
+                    'lastSync': DateTime.now().toIso8601String(),
+                  };
 
-            // Conservar campos locales si existen
-            final localItem = await box.values.firstWhere(
-              (it) => it is Map && (it['id'] == sowId || it['hiveKey'] == sowId),
-              orElse: () => null,
-            );
+                  // Conservar campos locales si existen
+                  final localItem = await box.values.firstWhere(
+                    (it) =>
+                        it is Map &&
+                        (it['id'] == sowId || it['hiveKey'] == sowId),
+                    orElse: () => null,
+                  );
 
-            if (localItem is Map) {
-              final convertedLocal = <String, dynamic>{};
-              localItem.forEach((k, v) => convertedLocal[k.toString()] = v);
-              sowData['historial'] = convertedLocal['historial'] ?? sowData['historial'] ?? [];
-              sowData['vacunas'] = convertedLocal['vacunas'] ?? sowData['vacunas'] ?? [];
-              sowData['partos'] = convertedLocal['partos'] ?? sowData['partos'] ?? [];
-            }
+                  if (localItem is Map) {
+                    final convertedLocal = <String, dynamic>{};
+                    localItem.forEach(
+                      (k, v) => convertedLocal[k.toString()] = v,
+                    );
+                    sowData['historial'] =
+                        convertedLocal['historial'] ??
+                        sowData['historial'] ??
+                        [];
+                    sowData['vacunas'] =
+                        convertedLocal['vacunas'] ?? sowData['vacunas'] ?? [];
+                    sowData['partos'] =
+                        convertedLocal['partos'] ?? sowData['partos'] ?? [];
+                  }
 
-            // Guardar usando la id remota como clave (consistencia)
-            await box.put(sowId, sowData);
-            print('✅ Guardado/actualizado desde Firebase: ${sowData['nombre']} ($sowId)');
-          }
+                  // Guardar usando la id remota como clave (consistencia)
+                  await box.put(sowId, sowData);
+                  print(
+                    '✅ Guardado/actualizado desde Firebase: ${sowData['nombre']} ($sowId)',
+                  );
+                }
 
-          // Limpiar locales que no existen en remoto
-          final remoteIds = snapshot.docs.map((d) => d.id).toSet();
-          for (var key in box.keys.toList()) {
-            final item = box.get(key);
-            if (item is Map && item['type'] == 'sow') {
-              final localSowId = item['id'];
-              if (localSowId != null && !remoteIds.contains(localSowId)) {
-                // NO eliminar automáticamente si quieres preservar offline — aquí se elimina
-                await box.delete(key);
-                print('🗑️ Cerda eliminada localmente (no existe en remoto): $localSowId');
+                // Limpiar locales que no existen en remoto
+                final remoteIds = snapshot.docs.map((d) => d.id).toSet();
+                for (var key in box.keys.toList()) {
+                  final item = box.get(key);
+                  if (item is Map && item['type'] == 'sow') {
+                    final localSowId = item['id'];
+                    if (localSowId != null && !remoteIds.contains(localSowId)) {
+                      // NO eliminar automáticamente si quieres preservar offline — aquí se elimina
+                      await box.delete(key);
+                      print(
+                        '🗑️ Cerda eliminada localmente (no existe en remoto): $localSowId',
+                      );
+                    }
+                  }
+                }
+
+                // Recalcular vista
+                await _reloadFromHive();
+                await _cargarDatos();
+              } catch (e) {
+                print('❌ Error procesando snapshot: $e');
               }
-            }
-          }
-
-          // Recalcular vista
-          await _reloadFromHive();
-          await _cargarDatos();
-        } catch (e) {
-          print('❌ Error procesando snapshot: $e');
-        }
-      }, onError: (error) {
-        print('❌ Error en Firebase listener: $error');
-      });
+            },
+            onError: (error) {
+              print('❌ Error en Firebase listener: $error');
+            },
+          );
     } catch (e) {
       print('❌ Fallo al iniciar Firebase listener: $e');
     }
@@ -205,7 +233,9 @@ Cerda: ${cerda['nombre']}
       if (!_sincronizando) await _sincronizarEnBackground();
     });
 
-    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((result) async {
+    _connectivitySubscription = Connectivity().onConnectivityChanged.listen((
+      result,
+    ) async {
       if (result != ConnectivityResult.none && !_sincronizando) {
         await _sincronizarEnBackground();
       }
@@ -237,7 +267,9 @@ Cerda: ${cerda['nombre']}
       // Usar SowService para otras operaciones (partos próximos) — pero el resumen vendrá de _cerdasResumen/Hive
       final partosProximos = await SowService.obtenerPartosProximos();
 
-      print('📊 Datos cargados: ${_cerdasResumen.length} cerdas, ${partosProximos.length} partos próximos');
+      print(
+        '📊 Datos cargados: ${_cerdasResumen.length} cerdas, ${partosProximos.length} partos próximos',
+      );
 
       if (mounted) {
         setState(() {
@@ -347,7 +379,9 @@ Cerda: ${cerda['nombre']}
               final ahora = DateTime.now();
               for (var data in boxNotif.values) {
                 if (data is Map && data['type'] == 'sow') {
-                  final fechaParto = _parseFechaSafe(data['fecha_parto_calculado']);
+                  final fechaParto = _parseFechaSafe(
+                    data['fecha_parto_calculado'],
+                  );
                   if (fechaParto != null) {
                     final diff = fechaParto.difference(ahora).inDays;
                     if (diff >= 0 && diff <= 7) notCount++;
@@ -426,15 +460,24 @@ Cerda: ${cerda['nombre']}
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Image.asset('assets/images/LogoAlex.png', width: 70, height: 70),
+                Image.asset(
+                  'assets/images/LogoAlex.png',
+                  width: 70,
+                  height: 70,
+                ),
                 const SizedBox(height: 10),
-                Text(username,
-                    style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold)),
-                Text(role.toUpperCase(),
-                    style: const TextStyle(color: Colors.white70, fontSize: 14)),
+                Text(
+                  username,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+                Text(
+                  role.toUpperCase(),
+                  style: const TextStyle(color: Colors.white70, fontSize: 14),
+                ),
                 if (_sincronizando)
                   const Padding(
                     padding: EdgeInsets.only(top: 4.0),
@@ -444,13 +487,17 @@ Cerda: ${cerda['nombre']}
                           width: 12,
                           height: 12,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor:
-                                  AlwaysStoppedAnimation<Color>(Colors.white)),
+                            strokeWidth: 2,
+                            valueColor: AlwaysStoppedAnimation<Color>(
+                              Colors.white,
+                            ),
+                          ),
                         ),
                         SizedBox(width: 4),
-                        Text('Sincronizando...',
-                            style: TextStyle(color: Colors.white70, fontSize: 10)),
+                        Text(
+                          'Sincronizando...',
+                          style: TextStyle(color: Colors.white70, fontSize: 10),
+                        ),
                       ],
                     ),
                   ),
@@ -467,7 +514,10 @@ Cerda: ${cerda['nombre']}
             title: const Text('Agregar Cerda'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const AgregarCerdaScreen())).then((_) async {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AgregarCerdaScreen()),
+              ).then((_) async {
                 await _reloadFromHive();
                 await _cargarDatos();
               });
@@ -486,7 +536,10 @@ Cerda: ${cerda['nombre']}
             title: const Text('Historial'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const HistorialScreen()));
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const HistorialScreen()),
+              );
             },
           ),
           ListTile(
@@ -494,7 +547,10 @@ Cerda: ${cerda['nombre']}
             title: const Text('Notificaciones'),
             onTap: () {
               Navigator.pop(context);
-              Navigator.push(context, MaterialPageRoute(builder: (_) => const NotificacionesScreen()));
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificacionesScreen()),
+              );
             },
           ),
           const Divider(),
@@ -508,7 +564,10 @@ Cerda: ${cerda['nombre']}
           ),
           ListTile(
             leading: const Icon(Icons.exit_to_app, color: Colors.pink),
-            title: const Text('Cerrar Sesión', style: TextStyle(color: Colors.pink)),
+            title: const Text(
+              'Cerrar Sesión',
+              style: TextStyle(color: Colors.pink),
+            ),
             onTap: () {
               _syncTimer?.cancel();
               _connectivitySubscription?.cancel();
@@ -539,21 +598,56 @@ Cerda: ${cerda['nombre']}
             mainAxisSpacing: 12,
             childAspectRatio: 1.5,
             children: [
-              _buildActionCard(context, 'Agregar Cerda', Icons.add_circle, Colors.green, () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const AgregarCerdaScreen())).then((_) async {
-                  await _reloadFromHive();
-                  await _cargarDatos();
-                });
-              }),
-              _buildActionCard(context, 'Ver Cerdas', Icons.pets, Colors.blue, () {
-                _navegarACerdas();
-              }),
-              _buildActionCard(context, 'Historial', Icons.history, Colors.orange, () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const HistorialScreen()));
-              }),
-              _buildActionCard(context, 'Informes', Icons.analytics, Colors.purple, () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const InformesScreen()));
-              }),
+              _buildActionCard(
+                context,
+                'Agregar Cerda',
+                Icons.add_circle,
+                Colors.green,
+                () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => const AgregarCerdaScreen(),
+                    ),
+                  ).then((_) async {
+                    await _reloadFromHive();
+                    await _cargarDatos();
+                  });
+                },
+              ),
+              _buildActionCard(
+                context,
+                'Ver Cerdas',
+                Icons.pets,
+                Colors.blue,
+                () {
+                  _navegarACerdas();
+                },
+              ),
+              _buildActionCard(
+                context,
+                'Historial',
+                Icons.history,
+                Colors.orange,
+                () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const HistorialScreen()),
+                  );
+                },
+              ),
+              _buildActionCard(
+                context,
+                'Informes',
+                Icons.analytics,
+                Colors.purple,
+                () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const InformesScreen()),
+                  );
+                },
+              ),
             ],
           ),
           const SizedBox(height: 16),
@@ -565,11 +659,11 @@ Cerda: ${cerda['nombre']}
                 if (snapshot.connectionState == ConnectionState.waiting) {
                   return const Center(child: CircularProgressIndicator());
                 }
-                
+
                 if (snapshot.hasError) {
                   return Center(child: Text('Error: ${snapshot.error}'));
                 }
-                
+
                 final cerdas = snapshot.data ?? [];
                 return _buildResumenContentFromList(cerdas);
               },
@@ -593,18 +687,18 @@ Cerda: ${cerda['nombre']}
       if (estado.contains('preñ') || estado.contains('pregnant')) {
         return true;
       }
-      
+
       // 2. Verificar por fecha de preñez
       if (c['fecha_prenez'] != null) {
         return true;
       }
-      
+
       // 3. Verificar por fecha de parto calculado en futuro
       final fechaPartoCalc = _parseFechaSafe(c['fecha_parto_calculado']);
       if (fechaPartoCalc != null && fechaPartoCalc.isAfter(DateTime.now())) {
         return true;
       }
-      
+
       return false;
     }).length;
 
@@ -615,7 +709,9 @@ Cerda: ${cerda['nombre']}
       for (var parto in partos) {
         if (parto is Map) {
           final numLechones = parto['num_lechones'];
-          totalLechones += (numLechones is int ? numLechones : int.tryParse('$numLechones') ?? 0);
+          totalLechones += (numLechones is int
+              ? numLechones
+              : int.tryParse('$numLechones') ?? 0);
         }
       }
     }
@@ -628,9 +724,9 @@ Cerda: ${cerda['nombre']}
       for (var parto in partos) {
         if (parto is Map) {
           final fechaParto = _parseFechaSafe(parto['fecha']);
-          if (fechaParto != null && 
-              fechaParto.year == ahora.year && 
-              fechaParto.month == ahora.month && 
+          if (fechaParto != null &&
+              fechaParto.year == ahora.year &&
+              fechaParto.month == ahora.month &&
               fechaParto.day == ahora.day) {
             partosHoy++;
           }
@@ -641,7 +737,9 @@ Cerda: ${cerda['nombre']}
     // CONTAR PARTOS PENDIENTES
     int partosPendientes = 0;
     for (var cerda in cerdas) {
-      final fechaPartoCalculado = _parseFechaSafe(cerda['fecha_parto_calculado']);
+      final fechaPartoCalculado = _parseFechaSafe(
+        cerda['fecha_parto_calculado'],
+      );
       if (fechaPartoCalculado != null && !fechaPartoCalculado.isBefore(ahora)) {
         partosPendientes++;
       }
@@ -653,13 +751,14 @@ Cerda: ${cerda['nombre']}
       final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
       for (var vac in vacunas) {
         if (vac is Map) {
-          final dosisProgramadas = vac['dosis_programadas'] as List<dynamic>? ?? [];
+          final dosisProgramadas =
+              vac['dosis_programadas'] as List<dynamic>? ?? [];
           for (var dosis in dosisProgramadas) {
             if (dosis is Map) {
               final fVac = _parseFechaSafe(dosis['fecha']);
-              if (fVac != null && 
-                  fVac.year == ahora.year && 
-                  fVac.month == ahora.month && 
+              if (fVac != null &&
+                  fVac.year == ahora.year &&
+                  fVac.month == ahora.month &&
                   fVac.day == ahora.day) {
                 vacunasHoy++;
               }
@@ -685,23 +784,51 @@ Cerda: ${cerda['nombre']}
         padding: const EdgeInsets.all(16),
         child: Column(
           children: [
-            const Text('Resumen General', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            const Text(
+              'Resumen General',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildInfoItem('Total Cerdas', totalCerdas.toString(), '🐖', totalCerdas),
+                _buildInfoItem(
+                  'Total Cerdas',
+                  totalCerdas.toString(),
+                  '🐖',
+                  totalCerdas,
+                ),
                 _buildInfoItem('Preñadas', prenadas.toString(), '🐷', prenadas),
-                _buildInfoItem('Lechones', totalLechones.toString(), '🐽', totalLechones),
+                _buildInfoItem(
+                  'Lechones',
+                  totalLechones.toString(),
+                  '🐽',
+                  totalLechones,
+                ),
               ],
             ),
             const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
-                _buildInfoItem('Partos Hoy', partosHoy.toString(), '📅', partosHoy),
-                _buildInfoItem('Pendientes', partosPendientes.toString(), '⏰', partosPendientes),
-                _buildInfoItem('Vacunas Hoy', vacunasHoy.toString(), '💉', vacunasHoy),
+                _buildInfoItem(
+                  'Partos Hoy',
+                  partosHoy.toString(),
+                  '📅',
+                  partosHoy,
+                ),
+                _buildInfoItem(
+                  'Pendientes',
+                  partosPendientes.toString(),
+                  '⏰',
+                  partosPendientes,
+                ),
+                _buildInfoItem(
+                  'Vacunas Hoy',
+                  vacunasHoy.toString(),
+                  '💉',
+                  vacunasHoy,
+                ),
               ],
             ),
           ],
@@ -715,23 +842,49 @@ Cerda: ${cerda['nombre']}
       children: [
         Text(emoji, style: const TextStyle(fontSize: 30)),
         const SizedBox(height: 4),
-        Text(value, style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: numero > 0 ? Colors.pink : Colors.grey)),
-        Text(title, style: TextStyle(fontSize: 12, color: numero > 0 ? Colors.black87 : Colors.grey)),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: numero > 0 ? Colors.pink : Colors.grey,
+          ),
+        ),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 12,
+            color: numero > 0 ? Colors.black87 : Colors.grey,
+          ),
+        ),
       ],
     );
   }
 
-  Widget _buildActionCard(BuildContext context, String title, IconData icon, Color color, VoidCallback onTap) {
+  Widget _buildActionCard(
+    BuildContext context,
+    String title,
+    IconData icon,
+    Color color,
+    VoidCallback onTap,
+  ) {
     return Card(
       elevation: 2,
       child: InkWell(
         onTap: onTap,
         borderRadius: BorderRadius.circular(8),
-        child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-          Icon(icon, size: 40, color: color),
-          const SizedBox(height: 8),
-          Text(title, textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.bold)),
-        ]),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 40, color: color),
+            const SizedBox(height: 8),
+            Text(
+              title,
+              textAlign: TextAlign.center,
+              style: const TextStyle(fontWeight: FontWeight.bold),
+            ),
+          ],
+        ),
       ),
     );
   }

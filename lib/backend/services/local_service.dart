@@ -3,9 +3,9 @@ import 'connectivity_service.dart';
 
 class LocalService {
   // Boxes
-  static const String _mainBox = 'porki_data';     // Cerdas, partos, vacunas, etc.
-  static const String _usersBox = 'porki_users';   // Usuario actual
-  static const String _syncBox = 'porki_sync';     // Acciones pendientes (offline)
+  static const String _mainBox = 'porki_data'; // Cerdas, partos, vacunas, etc.
+  static const String _usersBox = 'porki_users'; // Usuario actual
+  static const String _syncBox = 'porki_sync'; // Acciones pendientes (offline)
 
   static final ConnectivityService _connectivity = ConnectivityService();
 
@@ -91,7 +91,7 @@ class LocalService {
         // CORRECCIÓN: Convertir claves a String para la comparación
         final convertedItem = <String, dynamic>{};
         item.forEach((k, v) => convertedItem[k.toString()] = v);
-        
+
         if (convertedItem['id'] == key) {
           return convertedItem;
         }
@@ -132,7 +132,7 @@ class LocalService {
   static Future<List<dynamic>> getAllData({String boxName = _mainBox}) async {
     final box = await _openBox(boxName);
     final out = <dynamic>[];
-    
+
     for (var v in box.values) {
       if (v is Map) {
         // CORRECCIÓN: Preservar todas las claves, no solo las String
@@ -145,7 +145,7 @@ class LocalService {
         out.add(v);
       }
     }
-    
+
     print('📊 DEBUG: getAllData retornando ${out.length} elementos');
     return out;
   }
@@ -176,8 +176,8 @@ class LocalService {
   /// --------------------------------------------------------------------------
   /// Guardar registro pendiente de sincronización
   static Future<void> savePendingSync({
-    required String action,      // create, update, delete
-    required String entityType,  // sow, parto, vacuna…
+    required String action, // create, update, delete
+    required String entityType, // sow, parto, vacuna…
     required Map<String, dynamic> data,
   }) async {
     final box = await _openBox(_syncBox);
@@ -226,13 +226,20 @@ class LocalService {
     final users = await _openBox(_usersBox);
     final sync = await _openBox(_syncBox);
 
-    final totalCerdas = main.values.where((e) =>
-        e is Map && (e['type'] == 'sow' || e['type'] == 'cerda' || e['id'] != null)).length;
+    final totalCerdas = main.values
+        .where(
+          (e) =>
+              e is Map &&
+              (e['type'] == 'sow' || e['type'] == 'cerda' || e['id'] != null),
+        )
+        .length;
 
     return {
       "total_cerdas": totalCerdas,
       "total_usuarios": users.length,
-      "pendientes_sync": sync.values.where((e) => e is Map && e['pendingKey'] != null).length,
+      "pendientes_sync": sync.values
+          .where((e) => e is Map && e['pendingKey'] != null)
+          .length,
     };
   }
 
