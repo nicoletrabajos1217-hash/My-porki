@@ -1,17 +1,30 @@
 import 'local_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:hive/hive.dart';
 
 class SowService {
   static const String _sowType = 'sow';
   static final _firestore = FirebaseFirestore.instance;
 
+  // Caja de Hive para acceso directo
+  static Box? _porkiBox;
+
   /// Inicializar el servicio
   static Future<void> initialize() async {
     await LocalService.initialize();
-    print('✅ SowService inicializado');
+    _porkiBox = await Hive.openBox('porki_data');
+    print('✅ SowService inicializado con caja Hive');
   }
 
-  /// AGREGAR NUEVA CERDA
+  /// Obtener la caja de Hive (con inicialización si es necesario)
+  static Future<Box> _getBox() async {
+    if (_porkiBox == null || !_porkiBox!.isOpen) {
+      _porkiBox = await Hive.openBox('porki_data');
+    }
+    return _porkiBox!;
+  }
+
+  /// AGREGAR NUEVA CERDA - VERSIÓN MEJORADA
   static Future<Map<String, dynamic>> agregarCerda({
     required String idCtrl,
     required String nombre,
@@ -21,9 +34,11 @@ class SowService {
     String? estado,
   }) async {
     try {
+      final box = await _getBox();
       final String cerdaId = idCtrl.isNotEmpty
           ? idCtrl
           : 'sow_${DateTime.now().millisecondsSinceEpoch}';
+
       final bool prenada = fechaPrenez != null;
       final fechaPartoCalculado = prenada
           ? fechaPrenez.add(const Duration(days: 114))
@@ -43,16 +58,39 @@ class SowService {
         'vacunas': vacunasProcesadas,
         'fecha_creacion': DateTime.now().toIso8601String(),
         'fecha_actualizacion': DateTime.now().toIso8601String(),
+        'synced': false, // Para sincronización
       };
 
-      // Guardar localmente
-      await LocalService.saveData(key: cerdaId, value: nuevaCerda);
+      print('🔄 Guardando cerda localmente: $nombre');
 
-      // Sincronizar con Firestore si hay conexión
+      // 1. Guardar en Hive DIRECTAMENTE (más rápido y confiable)
+      await box.put(cerdaId, nuevaCerda);
+      print('✅ Cerda guardada en Hive: $cerdaId');
+
+      // 2. Sincronizar con Firestore si hay conexión
       final hasConnection = await LocalService.checkConnectivity();
       if (hasConnection) {
-        await _firestore.collection('sows').doc(cerdaId).set(nuevaCerda);
+        print('🌐 Sincronizando con Firestore...');
+        try {
+          await _firestore.collection('sows').doc(cerdaId).set(nuevaCerda);
+
+          // Marcar como sincronizada
+          nuevaCerda['synced'] = true;
+          nuevaCerda['lastSync'] = DateTime.now().toIso8601String();
+          await box.put(cerdaId, nuevaCerda);
+
+          print('✅ Cerda sincronizada con Firestore: $nombre');
+        } catch (firestoreError) {
+          print('⚠️ Error sincronizando con Firestore: $firestoreError');
+          // Guardar como pendiente de sincronización
+          await LocalService.savePendingSync(
+            action: 'create',
+            entityType: _sowType,
+            data: nuevaCerda,
+          );
+        }
       } else {
+        print('📴 Sin conexión, guardando como pendiente');
         await LocalService.savePendingSync(
           action: 'create',
           entityType: _sowType,
@@ -60,7 +98,7 @@ class SowService {
         );
       }
 
-      print('✅ Cerda agregada: $nombre');
+      print('✅ Cerda agregada completamente: $nombre');
       return nuevaCerda;
     } catch (e) {
       print('❌ Error agregando cerda: $e');
@@ -68,6 +106,7 @@ class SowService {
     }
   }
 
+  /// ACTUALIZAR CERDA - VERSIÓN MEJORADA
   static Future<void> actualizarCerda({
     required String id,
     String? nombre,
@@ -77,8 +116,15 @@ class SowService {
     String? estado,
   }) async {
     try {
+      final box = await _getBox();
       final cerda = await obtenerCerda(id);
-      if (cerda == null) throw Exception('Cerda no encontrada');
+
+      if (cerda == null) {
+        print('❌ Cerda no encontrada: $id');
+        throw Exception('Cerda no encontrada');
+      }
+
+      print('🔄 Actualizando cerda: ${cerda['nombre']}');
 
       // FECHA PARTO CALCULADA
       DateTime? fechaPartoCalculado;
@@ -94,7 +140,7 @@ class SowService {
       // VACUNAS
       final vacunasProcesadas = _procesarVacunas(vacunas, cerda);
 
-      // CORRECCIÓN REAL DEL ESTADO - LÓGICA SIMPLIFICADA
+      // CORRECCIÓN DEL ESTADO
       final estadoFinal =
           estado ??
           ((fechaPrenez != null || cerda['fecha_prenez'] != null)
@@ -112,18 +158,39 @@ class SowService {
         'vacunas': vacunasProcesadas.isNotEmpty
             ? vacunasProcesadas
             : List<Map<String, dynamic>>.from(cerda['vacunas'] ?? []),
-        'estado': estadoFinal, // Estado corregido
+        'estado': estadoFinal,
         'fecha_actualizacion': DateTime.now().toIso8601String(),
+        'synced': false, // Marcar como no sincronizada
       };
 
-      // Guardar local
-      await LocalService.saveData(key: id, value: cerdaActualizada);
+      // 1. Guardar en Hive DIRECTAMENTE
+      await box.put(id, cerdaActualizada);
 
-      // Guardar Firestore
+      print('✅ Cerda actualizada en Hive: ${cerdaActualizada['nombre']}');
+
+      // 2. Sincronizar con Firestore
       final hasConnection = await LocalService.checkConnectivity();
       if (hasConnection) {
-        await _firestore.collection('sows').doc(id).set(cerdaActualizada);
+        print('🌐 Sincronizando actualización con Firestore...');
+        try {
+          await _firestore.collection('sows').doc(id).set(cerdaActualizada);
+
+          // Marcar como sincronizada
+          cerdaActualizada['synced'] = true;
+          cerdaActualizada['lastSync'] = DateTime.now().toIso8601String();
+          await box.put(id, cerdaActualizada);
+
+          print('✅ Actualización sincronizada con Firestore');
+        } catch (firestoreError) {
+          print('⚠️ Error sincronizando actualización: $firestoreError');
+          await LocalService.savePendingSync(
+            action: 'update',
+            entityType: _sowType,
+            data: cerdaActualizada,
+          );
+        }
       } else {
+        print('📴 Sin conexión, guardando actualización como pendiente');
         await LocalService.savePendingSync(
           action: 'update',
           entityType: _sowType,
@@ -131,7 +198,7 @@ class SowService {
         );
       }
 
-      print('✅ Cerda actualizada correctamente: ${cerdaActualizada['nombre']}');
+      print('✅ Cerda actualizada completamente');
     } catch (e) {
       print('❌ Error actualizando cerda: $e');
       rethrow;
@@ -193,49 +260,82 @@ class SowService {
     return vacunasProcesadas;
   }
 
-  /// OBTENER CERDA POR ID (Hive + Firestore)
+  /// OBTENER CERDA POR ID - VERSIÓN MEJORADA
   static Future<Map<String, dynamic>?> obtenerCerda(String id) async {
     try {
-      // 1. Intentar Hive
-      final local = await LocalService.getData(key: id);
-      if (local != null && local['type'] == _sowType) {
-        return Map<String, dynamic>.from(local);
+      final box = await _getBox();
+
+      // 1. Intentar Hive primero (más rápido)
+      final localData = box.get(id);
+
+      if (localData != null &&
+          localData is Map &&
+          localData['type'] == _sowType) {
+        print('✅ Cerda encontrada en Hive: $id');
+        return Map<String, dynamic>.from(localData);
       }
 
-      // 2. Intentar Firestore
+      // 2. Si no está en Hive, buscar en Firestore
+      print('🔍 Cerda no encontrada en Hive, buscando en Firestore...');
       final doc = await _firestore.collection('sows').doc(id).get();
+
       if (doc.exists) {
         final data = doc.data()!;
-        data['id'] = doc.id;
-        data['type'] = _sowType;
-        data['partos'] ??= [];
-        data['vacunas'] ??= [];
+        final cerdaData = {
+          ...data,
+          'id': doc.id,
+          'type': _sowType,
+          'partos': data['partos'] ?? [],
+          'vacunas': data['vacunas'] ?? [],
+          'synced': true,
+          'lastSync': DateTime.now().toIso8601String(),
+        };
 
-        // Guardar en Hive
-        await LocalService.saveData(key: doc.id, value: data);
+        // Guardar en Hive para futuras consultas
+        await box.put(doc.id, cerdaData);
 
-        return data;
+        print('✅ Cerda cargada desde Firestore y guardada en Hive: $id');
+        return cerdaData;
       }
 
+      print('❌ Cerda no encontrada: $id');
       return null;
     } catch (e) {
-      print('❌ Error obteniendo cerda: $e');
+      print('❌ Error obteniendo cerda $id: $e');
       return null;
     }
   }
 
-  /// OBTENER TODAS LAS CERDAS - CORREGIDO
-  static Future<List<Map<String, dynamic>>> obtenerCerdas() async {
+  /// OBTENER TODAS LAS CERDAS - VERSIÓN MEJORADA Y REACTIVA
+  static Future<List<Map<String, dynamic>>> obtenerCerdas({
+    bool forceRefresh = false,
+  }) async {
     try {
-      // CORREGIDO: Usar LocalService.getAllData() que ya maneja Hive correctamente
-      final allData = await LocalService.getAllData();
-      final cerdas = allData
-          .where((data) => data is Map && data['type'] == _sowType)
-          .cast<Map<String, dynamic>>()
-          .toList();
+      final box = await _getBox();
+
+      print('🔄 === LLAMANDO obtenerCerdas() ===');
+
+      if (forceRefresh) {
+        print('🔍 Forzando actualización desde Firestore...');
+        await _sincronizarTodasCerdas();
+      }
+
+      // Obtener todas las cerdas de Hive
+      final allData = <Map<String, dynamic>>[];
+
+      for (var key in box.keys) {
+        final value = box.get(key);
+        if (value is Map && value['type'] == _sowType) {
+          final cerda = <String, dynamic>{};
+          value.forEach((k, v) => cerda[k.toString()] = v);
+          allData.add(cerda);
+        }
+      }
+
+      print('📦 Cerdas encontradas en Hive: ${allData.length}');
 
       // Ordenar por fecha de creación (más reciente primero)
-      cerdas.sort((a, b) {
+      allData.sort((a, b) {
         final fechaA =
             DateTime.tryParse(a['fecha_creacion'] ?? '') ?? DateTime.now();
         final fechaB =
@@ -243,81 +343,149 @@ class SowService {
         return fechaB.compareTo(fechaA);
       });
 
-      print('✅ Cerdas encontradas en obtenerCerdas: ${cerdas.length}');
-      return cerdas;
+      return allData;
     } catch (e) {
       print('❌ Error en obtenerCerdas: $e');
       return [];
     }
   }
 
-  /// ELIMINAR CERDA
-  static Future<void> eliminarCerda(String id) async {
-    final cerda = await obtenerCerda(id);
-    if (cerda == null) return;
+  /// SINCRONIZAR TODAS LAS CERDAS DESDE FIRESTORE
+  static Future<void> _sincronizarTodasCerdas() async {
+    try {
+      final box = await _getBox();
+      final hasConnection = await LocalService.checkConnectivity();
 
-    await LocalService.deleteData(key: id);
+      if (!hasConnection) {
+        print('📴 Sin conexión, no se puede sincronizar');
+        return;
+      }
 
-    final hasConnection = await LocalService.checkConnectivity();
-    if (hasConnection) {
-      await _firestore.collection('sows').doc(id).delete();
-    } else {
-      await LocalService.savePendingSync(
-        action: 'delete',
-        entityType: _sowType,
-        data: cerda,
-      );
+      print('🌐 Sincronizando cerdas desde Firestore...');
+      final snapshot = await _firestore.collection('sows').get();
+
+      for (var doc in snapshot.docs) {
+        final data = doc.data();
+        final sowData = {
+          ...data,
+          'id': doc.id,
+          'type': _sowType,
+          'synced': true,
+          'lastSync': DateTime.now().toIso8601String(),
+        };
+
+        await box.put(doc.id, sowData);
+      }
+
+      print('✅ Sincronizadas ${snapshot.docs.length} cerdas desde Firestore');
+    } catch (e) {
+      print('❌ Error sincronizando cerdas: $e');
     }
-
-    print('✅ Cerda eliminada: $id');
   }
 
-  /// OBTENER PARTOS PRÓXIMOS
+  /// ELIMINAR CERDA - VERSIÓN MEJORADA
+  static Future<void> eliminarCerda(String id) async {
+    try {
+      final box = await _getBox();
+      final cerda = await obtenerCerda(id);
+
+      if (cerda == null) {
+        print('⚠️ Cerda no encontrada para eliminar: $id');
+        return;
+      }
+
+      print('🗑️ Eliminando cerda: ${cerda['nombre']}');
+
+      // 1. Eliminar de Hive
+      await box.delete(id);
+      print('✅ Cerda eliminada de Hive: $id');
+
+      // 2. Sincronizar con Firestore
+      final hasConnection = await LocalService.checkConnectivity();
+      if (hasConnection) {
+        try {
+          await _firestore.collection('sows').doc(id).delete();
+          print('✅ Cerda eliminada de Firestore: $id');
+        } catch (firestoreError) {
+          print('⚠️ Error eliminando de Firestore: $firestoreError');
+          await LocalService.savePendingSync(
+            action: 'delete',
+            entityType: _sowType,
+            data: {'id': id, 'type': _sowType},
+          );
+        }
+      } else {
+        print('📴 Sin conexión, guardando eliminación como pendiente');
+        await LocalService.savePendingSync(
+          action: 'delete',
+          entityType: _sowType,
+          data: {'id': id, 'type': _sowType},
+        );
+      }
+    } catch (e) {
+      print('❌ Error eliminando cerda: $e');
+      rethrow;
+    }
+  }
+
+  /// OBTENER PARTOS PRÓXIMOS - VERSIÓN MEJORADA
   static Future<List<Map<String, dynamic>>> obtenerPartosProximos({
     int dias = 7,
   }) async {
-    final cerdas = await obtenerCerdas();
-    final ahora = DateTime.now();
-    final proximos = <Map<String, dynamic>>[];
+    try {
+      final cerdas = await obtenerCerdas();
+      final ahora = DateTime.now();
+      final proximos = <Map<String, dynamic>>[];
 
-    for (var cerda in cerdas) {
-      final fechaPartoStr = cerda['fecha_parto_calculado'];
+      for (var cerda in cerdas) {
+        final fechaPartoStr = cerda['fecha_parto_calculado'];
 
-      if (fechaPartoStr != null) {
-        try {
-          final fechaParto = DateTime.parse(fechaPartoStr.toString());
-          final diff = fechaParto.difference(ahora).inDays;
+        if (fechaPartoStr != null) {
+          try {
+            final fechaParto = DateTime.parse(fechaPartoStr.toString());
+            final diff = fechaParto.difference(ahora).inDays;
 
-          if (diff >= 0 && diff <= dias) {
-            proximos.add({...cerda, 'dias_restantes': diff});
+            if (diff >= 0 && diff <= dias) {
+              proximos.add({...cerda, 'dias_restantes': diff});
+            }
+          } catch (e) {
+            print('⚠️ Error parseando fecha parto de ${cerda['nombre']}: $e');
           }
-        } catch (e) {
-          print('Error parseando fecha parto de ${cerda['nombre']}: $e');
         }
       }
-    }
 
-    proximos.sort(
-      (a, b) =>
-          (a['dias_restantes'] as int).compareTo(b['dias_restantes'] as int),
-    );
-    return proximos;
+      proximos.sort(
+        (a, b) =>
+            (a['dias_restantes'] as int).compareTo(b['dias_restantes'] as int),
+      );
+
+      print('📅 Partos próximos encontrados: ${proximos.length}');
+      return proximos;
+    } catch (e) {
+      print('❌ Error obteniendo partos próximos: $e');
+      return [];
+    }
   }
 
-  /// OBTENER TOTAL DE LECHONES DE UNA CERDA
-  static int totalLechones(Map<String, dynamic> cerda) {
-    final partos = cerda['partos'] as List<dynamic>? ?? [];
-    int total = 0;
-    for (var parto in partos) {
-      final numLechones = parto['num_lechones'];
-      total += numLechones is int
-          ? numLechones
-          : int.tryParse('$numLechones') ?? 0;
+  /// OBTENER TOTAL DE LECHONES DE UNA CERDA - RENOMBRADO PARA EVITAR CONFLICTO
+  static int calcularTotalLechones(Map<String, dynamic> cerda) {
+    try {
+      final partos = cerda['partos'] as List<dynamic>? ?? [];
+      int total = 0;
+      for (var parto in partos) {
+        final numLechones = parto['num_lechones'];
+        total += numLechones is int
+            ? numLechones
+            : int.tryParse('$numLechones') ?? 0;
+      }
+      return total;
+    } catch (e) {
+      print('❌ Error calculando lechones: $e');
+      return 0;
     }
-    return total;
   }
 
-  /// NUEVO MÉTODO: OBTENER ESTADÍSTICAS PARA EL RESUMEN
+  /// OBTENER ESTADÍSTICAS PARA EL RESUMEN - VERSIÓN CORREGIDA
   static Future<Map<String, int>> obtenerEstadisticasResumen() async {
     try {
       final cerdas = await obtenerCerdas();
@@ -330,6 +498,8 @@ class SowService {
       int partosPendientes = 0;
       int vacunasHoy = 0;
 
+      print('📊 Calculando estadísticas para ${totalCerdas} cerdas...');
+
       for (var cerda in cerdas) {
         // Contar preñadas
         final estado = (cerda['estado'] ?? '').toString().toLowerCase();
@@ -340,31 +510,26 @@ class SowService {
             estado.contains('pregnant') ||
             fechaPrenez != null ||
             (fechaPartoCalc != null &&
-                DateTime.parse(fechaPartoCalc.toString()).isAfter(ahora))) {
+                DateTime.tryParse(fechaPartoCalc.toString())?.isAfter(ahora) ==
+                    true)) {
           prenadas++;
         }
 
-        // Contar lechones
+        // Contar lechones - USANDO MÉTODO RENOMBRADO
+        totalLechones += calcularTotalLechones(cerda);
+
+        // Contar partos hoy
         final partos = cerda['partos'] as List<dynamic>? ?? [];
         for (var parto in partos) {
           if (parto is Map) {
-            final numLechones = parto['num_lechones'];
-            totalLechones += (numLechones is int
-                ? numLechones
-                : int.tryParse('$numLechones') ?? 0);
-
-            // Contar partos hoy
             final fechaPartoStr = parto['fecha'];
             if (fechaPartoStr != null) {
-              try {
-                final fechaParto = DateTime.parse(fechaPartoStr.toString());
-                if (fechaParto.year == ahora.year &&
-                    fechaParto.month == ahora.month &&
-                    fechaParto.day == ahora.day) {
-                  partosHoy++;
-                }
-              } catch (e) {
-                // Ignorar errores de parseo
+              final fechaParto = DateTime.tryParse(fechaPartoStr.toString());
+              if (fechaParto != null &&
+                  fechaParto.year == ahora.year &&
+                  fechaParto.month == ahora.month &&
+                  fechaParto.day == ahora.day) {
+                partosHoy++;
               }
             }
           }
@@ -372,13 +537,9 @@ class SowService {
 
         // Contar partos pendientes
         if (fechaPartoCalc != null) {
-          try {
-            final fechaParto = DateTime.parse(fechaPartoCalc.toString());
-            if (!fechaParto.isBefore(ahora)) {
-              partosPendientes++;
-            }
-          } catch (e) {
-            // Ignorar errores de parseo
+          final fechaParto = DateTime.tryParse(fechaPartoCalc.toString());
+          if (fechaParto != null && !fechaParto.isBefore(ahora)) {
+            partosPendientes++;
           }
         }
 
@@ -392,15 +553,12 @@ class SowService {
               if (dosis is Map) {
                 final fechaVacStr = dosis['fecha'];
                 if (fechaVacStr != null) {
-                  try {
-                    final fechaVac = DateTime.parse(fechaVacStr.toString());
-                    if (fechaVac.year == ahora.year &&
-                        fechaVac.month == ahora.month &&
-                        fechaVac.day == ahora.day) {
-                      vacunasHoy++;
-                    }
-                  } catch (e) {
-                    // Ignorar errores de parseo
+                  final fechaVac = DateTime.tryParse(fechaVacStr.toString());
+                  if (fechaVac != null &&
+                      fechaVac.year == ahora.year &&
+                      fechaVac.month == ahora.month &&
+                      fechaVac.day == ahora.day) {
+                    vacunasHoy++;
                   }
                 }
               }
@@ -409,7 +567,7 @@ class SowService {
         }
       }
 
-      return {
+      final stats = {
         'totalCerdas': totalCerdas,
         'prenadas': prenadas,
         'totalLechones': totalLechones,
@@ -417,6 +575,9 @@ class SowService {
         'partosPendientes': partosPendientes,
         'vacunasHoy': vacunasHoy,
       };
+
+      print('✅ Estadísticas calculadas: $stats');
+      return stats;
     } catch (e) {
       print('❌ Error obteniendo estadísticas: $e');
       return {
@@ -428,5 +589,10 @@ class SowService {
         'vacunasHoy': 0,
       };
     }
+  }
+
+  /// FORZAR SINCRONIZACIÓN (para usar desde HomeScreen)
+  static Future<void> forzarSincronizacion() async {
+    await _sincronizarTodasCerdas();
   }
 }

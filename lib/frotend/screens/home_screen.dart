@@ -8,6 +8,7 @@ import 'package:my_porki/frotend/screens/historial_screen.dart';
 import 'package:my_porki/frotend/screens/informes_screen.dart';
 import 'package:my_porki/frotend/screens/login_screen.dart';
 import 'package:my_porki/frotend/screens/notificaciones_screen.dart';
+import 'package:my_porki/frotend/screens/settings_screen.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -23,213 +24,246 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   bool _isLoading = true;
   bool _sincronizando = false;
+  int _cantidadNotificaciones = 0;
+  late Box _porkiBox;
+
+  // Manejo de nombre/rol actualizado
+  late Map<String, dynamic> _currentUserData;
 
   late final SyncService _syncService;
   Timer? _syncTimer;
+
   StreamSubscription<dynamic>? _connectivitySubscription;
   StreamSubscription<QuerySnapshot<Map<String, dynamic>>>?
   _firebaseSubscription;
 
-  List<Map<String, dynamic>> _notificaciones = [];
-  int _cantidadNotificaciones = 0;
+  // === NUEVO: listener del historial global (collectionGroup) ===
+  StreamSubscription<QuerySnapshot<Map<String, dynamic>>>? _historialSub;
 
-  // Caja y lista normalizada de cerdas para el resumen
-  Box? _porkiBox;
-  List<Map<String, dynamic>> _cerdasResumen = [];
+  static const Duration _syncInterval = Duration(minutes: 2);
+  static const int _notificationDaysThreshold = 7;
 
   @override
   void initState() {
     super.initState();
     _syncService = SyncService();
-    _init(); // inicializaciones asíncronas
-    _iniciarFirebaseListener();
-    _iniciarSincronizacionAutomatica();
-    _debugCerdasData(); // ← AÑADIDO para debugging
+    _currentUserData = Map<String, dynamic>.from(widget.userData);
+    _initApp();
   }
 
-  // AÑADIR ESTA FUNCIÓN NUEVA PARA DEBUG
-  void _debugCerdasData() async {
-    final cerdas = await SowService.obtenerCerdas();
-    print('🔍 DEBUG - Total cerdas desde SowService: ${cerdas.length}');
-
-    for (var cerda in cerdas) {
-      print('''
-Cerda: ${cerda['nombre']}
-- Estado: ${cerda['estado']}
-- Fecha Preñez: ${cerda['fecha_prenez']}
-- Fecha Parto Calculado: ${cerda['fecha_parto_calculado']}
-- Partos: ${(cerda['partos'] as List).length}
-- Vacunas: ${(cerda['vacunas'] as List).length}
-''');
-    }
-  }
-
-  Future<void> _init() async {
+  Future<void> _initApp() async {
     try {
       _porkiBox = await Hive.openBox('porki_data');
       print('✅ Caja porki_data abierta en HomeScreen');
+
+      _iniciarFirebaseListener(); // sows
+      _iniciarHistorialListener(); // historial (subcolecciones)
+      _iniciarSincronizacionAutomatica();
+
+      await _cargarDatosIniciales();
     } catch (e) {
-      print('❌ Error abriendo caja porki_data: $e');
+      print('❌ Error en inicialización: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
-
-    // Cargar inicialmente desde LocalService/SowService y desde Hive
-    await _reloadFromHive();
-    await _cargarDatos();
   }
 
-  @override
-  void dispose() {
-    _syncTimer?.cancel();
-    _connectivitySubscription?.cancel();
-    _firebaseSubscription?.cancel();
-    super.dispose();
-  }
-
-  DateTime? _parseFechaSafe(dynamic fecha) {
-    if (fecha == null) return null;
+  Future<void> _cargarDatosIniciales() async {
     try {
-      return DateTime.parse(fecha.toString());
+      final partosProximos = await SowService.obtenerPartosProximos();
+      if (mounted) {
+        setState(() {
+          _cantidadNotificaciones = partosProximos.length;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('❌ Error cargando datos iniciales: $e');
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  // === A) Parser de fechas ROBUSTO (Timestamp, DateTime, int ms, String ISO) ===
+  DateTime? _parseFechaSafe(dynamic v) {
+    try {
+      if (v == null) return null;
+      if (v is DateTime) return v;
+      if (v is Timestamp) return v.toDate(); // Firestore
+      if (v is int) {
+        // Asumimos milisegundos; si tus enteros están en segundos, cambia a v * 1000.
+        return DateTime.fromMillisecondsSinceEpoch(v);
+      }
+      if (v is String) {
+        return DateTime.tryParse(v);
+      }
+      if (v is Map && v['_seconds'] != null) {
+        final seconds = v['_seconds'] as int;
+        final nanos = (v['_nanoseconds'] ?? 0) as int;
+        return DateTime.fromMillisecondsSinceEpoch(
+          seconds * 1000 + (nanos ~/ 1000000),
+        );
+      }
+      return null;
     } catch (_) {
       return null;
     }
   }
 
-  /// Normaliza los valores de la caja a List<Map<String,dynamic>> y guarda en estado
-  Future<void> _reloadFromHive() async {
-    try {
-      final box = _porkiBox ?? await Hive.openBox('porki_data');
-      final normalized = <Map<String, dynamic>>[];
-
-      for (var v in box.values) {
-        if (v is Map) {
-          final converted = <String, dynamic>{};
-          v.forEach((k, val) => converted[k.toString()] = val);
-          // Asegurarse de que el type esté presente para filtrar
-          if (converted['type'] == null && (converted['id'] != null)) {
-            converted['type'] = 'sow';
-          }
-          if (converted['type'] == 'sow') {
-            normalized.add(converted);
-          }
-        }
-      }
-
-      // Orden consistente (opcional)
-      normalized.sort((a, b) {
-        final fa =
-            DateTime.tryParse(a['fecha_creacion'] ?? '') ??
-            DateTime.fromMillisecondsSinceEpoch(0);
-        final fb =
-            DateTime.tryParse(b['fecha_creacion'] ?? '') ??
-            DateTime.fromMillisecondsSinceEpoch(0);
-        return fb.compareTo(fa);
-      });
-
-      if (mounted) {
-        setState(() {
-          _cerdasResumen = normalized;
-        });
-      }
-
-      print(
-        '🔁 reloadFromHive: ${_cerdasResumen.length} cerdas cargadas desde Hive',
-      );
-    } catch (e) {
-      print('❌ Error en _reloadFromHive: $e');
-    }
-  }
-
+  // === Firestore: listener de cerdas (documentos de 'sows') ===
   void _iniciarFirebaseListener() {
     try {
       final firestore = FirebaseFirestore.instance;
 
       _firebaseSubscription = firestore
           .collection('sows')
+          // .where('ownerId', isEqualTo: _currentUserData['uid']) // opcional si multi-tenant
           .snapshots()
           .listen(
-            (snapshot) async {
-              try {
-                final box = _porkiBox ?? await Hive.openBox('porki_data');
-
-                print(
-                  '🔄 Firebase listener: ${snapshot.docs.length} documentos detectados',
-                );
-
-                for (var doc in snapshot.docs) {
-                  final data = doc.data();
-                  final sowId = doc.id;
-                  final sowData = {
-                    ...data,
-                    'id': sowId,
-                    'type': 'sow',
-                    'synced': true,
-                    'lastSync': DateTime.now().toIso8601String(),
-                  };
-
-                  // Conservar campos locales si existen
-                  final localItem = await box.values.firstWhere(
-                    (it) =>
-                        it is Map &&
-                        (it['id'] == sowId || it['hiveKey'] == sowId),
-                    orElse: () => null,
-                  );
-
-                  if (localItem is Map) {
-                    final convertedLocal = <String, dynamic>{};
-                    localItem.forEach(
-                      (k, v) => convertedLocal[k.toString()] = v,
-                    );
-                    sowData['historial'] =
-                        convertedLocal['historial'] ??
-                        sowData['historial'] ??
-                        [];
-                    sowData['vacunas'] =
-                        convertedLocal['vacunas'] ?? sowData['vacunas'] ?? [];
-                    sowData['partos'] =
-                        convertedLocal['partos'] ?? sowData['partos'] ?? [];
-                  }
-
-                  // Guardar usando la id remota como clave (consistencia)
-                  await box.put(sowId, sowData);
-                  print(
-                    '✅ Guardado/actualizado desde Firebase: ${sowData['nombre']} ($sowId)',
-                  );
-                }
-
-                // Limpiar locales que no existen en remoto
-                final remoteIds = snapshot.docs.map((d) => d.id).toSet();
-                for (var key in box.keys.toList()) {
-                  final item = box.get(key);
-                  if (item is Map && item['type'] == 'sow') {
-                    final localSowId = item['id'];
-                    if (localSowId != null && !remoteIds.contains(localSowId)) {
-                      // NO eliminar automáticamente si quieres preservar offline — aquí se elimina
-                      await box.delete(key);
-                      print(
-                        '🗑️ Cerda eliminada localmente (no existe en remoto): $localSowId',
-                      );
-                    }
-                  }
-                }
-
-                // Recalcular vista
-                await _reloadFromHive();
-                await _cargarDatos();
-              } catch (e) {
-                print('❌ Error procesando snapshot: $e');
-              }
-            },
+            _procesarSnapshotFirebase,
             onError: (error) {
-              print('❌ Error en Firebase listener: $error');
+              print('❌ Error en Firebase listener (sows): $error');
             },
           );
     } catch (e) {
-      print('❌ Fallo al iniciar Firebase listener: $e');
+      print('❌ Fallo al iniciar Firebase listener (sows): $e');
+    }
+  }
+
+  Future<void> _procesarSnapshotFirebase(
+    QuerySnapshot<Map<String, dynamic>> snapshot,
+  ) async {
+    try {
+      final remoteIds = <String>{};
+
+      for (var doc in snapshot.docs) {
+        remoteIds.add(doc.id);
+        await _actualizarCerdaDesdeFirebase(doc);
+      }
+
+      await _limpiarCerdasLocales(remoteIds);
+    } catch (e) {
+      print('❌ Error procesando snapshot sows: $e');
+    }
+  }
+
+  // === B) Precedencia REMOTA al fusionar datos sow (lo remoto manda) ===
+  Future<void> _actualizarCerdaDesdeFirebase(
+    QueryDocumentSnapshot<Map<String, dynamic>> doc,
+  ) async {
+    final data = doc.data();
+    final sowId = doc.id;
+
+    final sowData = {
+      ...data,
+      'id': sowId,
+      'type': 'sow',
+      'synced': true,
+      'lastSync': DateTime.now().toIso8601String(),
+    };
+
+    final localItem = await _obtenerItemLocal(sowId);
+
+    // Si el remoto no trae estos campos (porque están en subcolecciones),
+    // conservamos los del local; pero si el remoto sí los trae, se usan los remotos.
+    if (localItem != null) {
+      sowData['historial'] =
+          sowData['historial'] ?? localItem['historial'] ?? [];
+      sowData['vacunas'] = sowData['vacunas'] ?? localItem['vacunas'] ?? [];
+      sowData['partos'] = sowData['partos'] ?? localItem['partos'] ?? [];
+    }
+
+    await _porkiBox.put(sowId, sowData);
+    print('✅ Actualizada desde Firebase: ${sowData['nombre']} ($sowId)');
+  }
+
+  Future<Map<String, dynamic>?> _obtenerItemLocal(String sowId) async {
+    try {
+      final localItem = await _porkiBox.values.firstWhere(
+        (it) => it is Map && (it['id'] == sowId || it['hiveKey'] == sowId),
+        orElse: () => null,
+      );
+
+      if (localItem is Map) {
+        final convertedLocal = <String, dynamic>{};
+        localItem.forEach((k, v) => convertedLocal[k.toString()] = v);
+        return convertedLocal;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  Future<void> _limpiarCerdasLocales(Set<String> remoteIds) async {
+    for (var key in _porkiBox.keys.toList()) {
+      final item = _porkiBox.get(key);
+      if (item is Map && item['type'] == 'sow') {
+        final localSowId = item['id'];
+        if (localSowId != null && !remoteIds.contains(localSowId)) {
+          await _porkiBox.delete(key);
+          print('🗑️ Cerda eliminada localmente: $localSowId');
+        }
+      }
+    }
+  }
+
+  // === C) Listener del HISTORIAL global de todas las cerdas con collectionGroup ===
+  void _iniciarHistorialListener() {
+    try {
+      final firestore = FirebaseFirestore.instance;
+
+      _historialSub = firestore
+          .collectionGroup('historial') // subcolección en sows/{id}/historial
+          .orderBy('timestamp', descending: true)
+          .limit(50)
+          .snapshots()
+          .listen(
+            (snap) async {
+              final cambios = <Map<String, dynamic>>[];
+
+              for (final d in snap.docs) {
+                final data = d.data();
+                final parent = d.reference.parent.parent; // sows/{sowId}
+                final sowId = data['cerdaId'] ?? parent?.id ?? '';
+                final fecha =
+                    _parseFechaSafe(data['timestamp']) ??
+                    DateTime.fromMillisecondsSinceEpoch(0);
+
+                // Resolver nombre de la cerda desde Hive (si existe)
+                String? sowName;
+                final localSow = (sowId.isNotEmpty)
+                    ? _porkiBox.get(sowId)
+                    : null;
+                if (localSow is Map && localSow['nombre'] != null) {
+                  sowName = localSow['nombre']?.toString();
+                }
+
+                cambios.add({
+                  'id': d.id,
+                  'sowId': sowId,
+                  'sowName': sowName ?? sowId,
+                  'tipo': data['tipo'] ?? '',
+                  'descripcion': data['descripcion'] ?? '',
+                  'autorId': data['autorId'] ?? '',
+                  'timestamp': fecha.millisecondsSinceEpoch,
+                  'datos': (data['datos'] is Map)
+                      ? Map<String, dynamic>.from(data['datos'] as Map)
+                      : null,
+                });
+              }
+
+              // Persistir historial en Hive (clave fija)
+              await _porkiBox.put('global_historial', cambios);
+              // No hace falta setState: ValueListenableBuilder del Box se encargará
+            },
+            onError: (e) {
+              print('❌ Error historial listener: $e');
+            },
+          );
+    } catch (e) {
+      print('❌ Fallo al iniciar historial listener: $e');
     }
   }
 
   void _iniciarSincronizacionAutomatica() {
-    _syncTimer = Timer.periodic(const Duration(minutes: 2), (timer) async {
+    _syncTimer = Timer.periodic(_syncInterval, (timer) async {
       if (!_sincronizando) await _sincronizarEnBackground();
     });
 
@@ -244,12 +278,11 @@ Cerda: ${cerda['nombre']}
 
   Future<void> _sincronizarEnBackground() async {
     if (mounted) setState(() => _sincronizando = true);
+
     try {
-      bool tieneConexion = await _syncService.checkConnection();
+      final tieneConexion = await _syncService.checkConnection();
       if (tieneConexion) {
         await _syncService.syncAllPending();
-        await _reloadFromHive();
-        await _cargarDatos();
         print('✅ Sincronización automática completada');
       }
     } catch (e) {
@@ -259,58 +292,13 @@ Cerda: ${cerda['nombre']}
     }
   }
 
-  Future<void> _cargarDatos() async {
-    try {
-      // asegurarnos de tener la caja
-      _porkiBox ??= await Hive.openBox('porki_data');
-
-      // Usar SowService para otras operaciones (partos próximos) — pero el resumen vendrá de _cerdasResumen/Hive
-      final partosProximos = await SowService.obtenerPartosProximos();
-
-      print(
-        '📊 Datos cargados: ${_cerdasResumen.length} cerdas, ${partosProximos.length} partos próximos',
-      );
-
-      if (mounted) {
-        setState(() {
-          _notificaciones = partosProximos;
-          _cantidadNotificaciones = partosProximos.length;
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
-      print('❌ Error cargando datos: $e');
-    }
-  }
-
   Future<void> _sincronizarManualmente() async {
     if (_sincronizando) return;
 
     setState(() => _sincronizando = true);
 
     try {
-      final box = _porkiBox ?? await Hive.openBox('porki_data');
-      final firestore = FirebaseFirestore.instance;
-
       await _syncService.syncAllPending();
-
-      final snapshot = await firestore.collection('sows').get();
-
-      for (var doc in snapshot.docs) {
-        final data = doc.data();
-        final sowData = {
-          ...data,
-          'id': doc.id,
-          'type': 'sow',
-          'synced': true,
-          'lastSync': DateTime.now().toIso8601String(),
-        };
-        await box.put(doc.id, sowData);
-      }
-
-      await _reloadFromHive();
-      await _cargarDatos();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -335,21 +323,148 @@ Cerda: ${cerda['nombre']}
     }
   }
 
+  // Actualizar nombre/rol en UI
+  void _actualizarDatosUsuario(Map<String, dynamic> nuevosDatos) {
+    if (mounted) {
+      setState(() {
+        _currentUserData = Map<String, dynamic>.from(nuevosDatos);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _syncTimer?.cancel();
+    _connectivitySubscription?.cancel();
+    _firebaseSubscription?.cancel();
+    _historialSub?.cancel(); // === importante ===
+    super.dispose();
+  }
+
+  // Acciones / navegación
   void _navegarACerdas() {
     Navigator.push(
       context,
       MaterialPageRoute(builder: (_) => const CerdaScreen()),
-    ).then((_) async {
-      // Recargar datos cuando regreses de CerdaScreen
-      await _reloadFromHive();
-      await _cargarDatos();
-    });
+    );
   }
+
+  Future<void> _recargarDatos() async {
+    final partosProximos = await SowService.obtenerPartosProximos();
+    if (mounted) {
+      setState(() {
+        _cantidadNotificaciones = partosProximos.length;
+      });
+    }
+  }
+
+  // Obtener cerdas desde Hive (síncrono)
+  List<Map<String, dynamic>> _obtenerCerdasDesdeHive() {
+    final cerdas = <Map<String, dynamic>>[];
+
+    for (var item in _porkiBox.values) {
+      if (item is Map && item['type'] == 'sow') {
+        final cerda = Map<String, dynamic>.from(item);
+        cerdas.add(cerda);
+      }
+    }
+
+    return cerdas;
+  }
+
+  // Resumen general
+  Map<String, int> _calcularResumen(List<Map<String, dynamic>> cerdas) {
+    int totalCerdas = cerdas.length;
+    int prenadas = 0;
+    int totalLechones = 0;
+    int partosHoy = 0;
+    int partosPendientes = 0;
+    int vacunasHoy = 0;
+    final ahora = DateTime.now();
+
+    for (var cerda in cerdas) {
+      // Preñadas
+      final estado = (cerda['estado'] ?? '').toString().toLowerCase();
+      if (estado.contains('preñ') || estado.contains('pregnant')) {
+        prenadas++;
+      } else if (cerda['fecha_prenez'] != null) {
+        prenadas++;
+      } else {
+        final fechaPartoCalc = _parseFechaSafe(cerda['fecha_parto_calculado']);
+        if (fechaPartoCalc != null && fechaPartoCalc.isAfter(DateTime.now())) {
+          prenadas++;
+        }
+      }
+
+      // Lechones
+      final partos = cerda['partos'] as List<dynamic>? ?? [];
+      for (var parto in partos) {
+        if (parto is Map) {
+          final numLechones = parto['num_lechones'];
+          totalLechones += (numLechones is int
+              ? numLechones
+              : int.tryParse('$numLechones') ?? 0);
+        }
+      }
+
+      // Partos hoy
+      for (var parto in partos) {
+        if (parto is Map) {
+          final fechaParto = _parseFechaSafe(parto['fecha']);
+          if (fechaParto != null &&
+              fechaParto.year == ahora.year &&
+              fechaParto.month == ahora.month &&
+              fechaParto.day == ahora.day) {
+            partosHoy++;
+          }
+        }
+      }
+
+      // Partos pendientes
+      final fechaPartoCalculado = _parseFechaSafe(
+        cerda['fecha_parto_calculado'],
+      );
+      if (fechaPartoCalculado != null && !fechaPartoCalculado.isBefore(ahora)) {
+        partosPendientes++;
+      }
+
+      // Vacunas hoy
+      final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
+      for (var vac in vacunas) {
+        if (vac is Map) {
+          final dosisProgramadas =
+              vac['dosis_programadas'] as List<dynamic>? ?? [];
+          for (var dosis in dosisProgramadas) {
+            if (dosis is Map) {
+              final fVac = _parseFechaSafe(dosis['fecha']);
+              if (fVac != null &&
+                  fVac.year == ahora.year &&
+                  fVac.month == ahora.month &&
+                  fVac.day == ahora.day) {
+                vacunasHoy++;
+              }
+            }
+          }
+        }
+      }
+    }
+
+    return {
+      'totalCerdas': totalCerdas,
+      'prenadas': prenadas,
+      'totalLechones': totalLechones,
+      'partosHoy': partosHoy,
+      'partosPendientes': partosPendientes,
+      'vacunasHoy': vacunasHoy,
+    };
+  }
+
+  // ==== UI ====
 
   @override
   Widget build(BuildContext context) {
-    final username = widget.userData['username'] ?? 'Usuario';
-    final role = widget.userData['role'] ?? 'colaborador';
+    final username = _currentUserData['username'] ?? 'Usuario';
+    final role = _currentUserData['role'] ?? 'colaborador';
 
     return Scaffold(
       appBar: AppBar(
@@ -370,69 +485,10 @@ Cerda: ${cerda['nombre']}
             onPressed: _sincronizarManualmente,
             tooltip: 'Sincronizar',
           ),
-
-          // Badge de notificaciones revisando la caja directamente
-          ValueListenableBuilder<Box>(
-            valueListenable: (_porkiBox ?? Hive.box('porki_data')).listenable(),
-            builder: (context, boxNotif, _) {
-              int notCount = 0;
-              final ahora = DateTime.now();
-              for (var data in boxNotif.values) {
-                if (data is Map && data['type'] == 'sow') {
-                  final fechaParto = _parseFechaSafe(
-                    data['fecha_parto_calculado'],
-                  );
-                  if (fechaParto != null) {
-                    final diff = fechaParto.difference(ahora).inDays;
-                    if (diff >= 0 && diff <= 7) notCount++;
-                  }
-                }
-              }
-
-              return Stack(
-                children: [
-                  IconButton(
-                    icon: const Icon(Icons.notifications),
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const NotificacionesScreen(),
-                        ),
-                      );
-                    },
-                  ),
-                  if (notCount > 0)
-                    Positioned(
-                      right: 8,
-                      top: 8,
-                      child: Container(
-                        padding: const EdgeInsets.all(2),
-                        decoration: BoxDecoration(
-                          color: Colors.red,
-                          borderRadius: BorderRadius.circular(10),
-                        ),
-                        constraints: const BoxConstraints(
-                          minWidth: 16,
-                          minHeight: 16,
-                        ),
-                        child: Text(
-                          notCount > 9 ? '9+' : notCount.toString(),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 10,
-                          ),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
+          _buildNotificationBadge(),
         ],
       ),
-      drawer: _buildDrawer(context, username, role),
+      drawer: _buildDrawer(context),
       body: _isLoading ? _buildLoadingScreen() : _buildBody(context),
     );
   }
@@ -445,140 +501,6 @@ Cerda: ${cerda['nombre']}
           CircularProgressIndicator(color: Colors.pink),
           SizedBox(height: 16),
           Text('Cargando datos...', style: TextStyle(color: Colors.grey)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDrawer(BuildContext context, String username, String role) {
-    return Drawer(
-      child: ListView(
-        padding: EdgeInsets.zero,
-        children: [
-          DrawerHeader(
-            decoration: const BoxDecoration(color: Colors.pink),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Image.asset(
-                  'assets/images/LogoAlex.png',
-                  width: 70,
-                  height: 70,
-                ),
-                const SizedBox(height: 10),
-                Text(
-                  username,
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-                Text(
-                  role.toUpperCase(),
-                  style: const TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                if (_sincronizando)
-                  const Padding(
-                    padding: EdgeInsets.only(top: 4.0),
-                    child: Row(
-                      children: [
-                        SizedBox(
-                          width: 12,
-                          height: 12,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2,
-                            valueColor: AlwaysStoppedAnimation<Color>(
-                              Colors.white,
-                            ),
-                          ),
-                        ),
-                        SizedBox(width: 4),
-                        Text(
-                          'Sincronizando...',
-                          style: TextStyle(color: Colors.white70, fontSize: 10),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-          ListTile(
-            leading: const Icon(Icons.home, color: Colors.pink),
-            title: const Text('Inicio'),
-            onTap: () => Navigator.pop(context),
-          ),
-          ListTile(
-            leading: const Icon(Icons.add_circle, color: Colors.green),
-            title: const Text('Agregar Cerda'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const AgregarCerdaScreen()),
-              ).then((_) async {
-                await _reloadFromHive();
-                await _cargarDatos();
-              });
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.pets, color: Colors.blue),
-            title: const Text('Ver Cerdas'),
-            onTap: () {
-              Navigator.pop(context);
-              _navegarACerdas();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.history, color: Colors.orange),
-            title: const Text('Historial'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const HistorialScreen()),
-              );
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.notifications, color: Colors.purple),
-            title: const Text('Notificaciones'),
-            onTap: () {
-              Navigator.pop(context);
-              Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => const NotificacionesScreen()),
-              );
-            },
-          ),
-          const Divider(),
-          ListTile(
-            leading: const Icon(Icons.sync, color: Colors.blue),
-            title: const Text('Sincronizar Ahora'),
-            onTap: () {
-              Navigator.pop(context);
-              _sincronizarManualmente();
-            },
-          ),
-          ListTile(
-            leading: const Icon(Icons.exit_to_app, color: Colors.pink),
-            title: const Text(
-              'Cerrar Sesión',
-              style: TextStyle(color: Colors.pink),
-            ),
-            onTap: () {
-              _syncTimer?.cancel();
-              _connectivitySubscription?.cancel();
-              _firebaseSubscription?.cancel();
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const LoginScreen()),
-                (route) => false,
-              );
-            },
-          ),
         ],
       ),
     );
@@ -609,10 +531,7 @@ Cerda: ${cerda['nombre']}
                     MaterialPageRoute(
                       builder: (_) => const AgregarCerdaScreen(),
                     ),
-                  ).then((_) async {
-                    await _reloadFromHive();
-                    await _cargarDatos();
-                  });
+                  ).then((_) => _recargarDatos());
                 },
               ),
               _buildActionCard(
@@ -620,9 +539,7 @@ Cerda: ${cerda['nombre']}
                 'Ver Cerdas',
                 Icons.pets,
                 Colors.blue,
-                () {
-                  _navegarACerdas();
-                },
+                () => _navegarACerdas(),
               ),
               _buildActionCard(
                 context,
@@ -652,212 +569,26 @@ Cerda: ${cerda['nombre']}
           ),
           const SizedBox(height: 16),
           Expanded(
-            // CAMBIO MÍNIMO: Usar FutureBuilder con SowService.obtenerCerdas() para usar MISMOS datos que "Ver Cerdas"
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: SowService.obtenerCerdas(),
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const Center(child: CircularProgressIndicator());
-                }
+            child: ValueListenableBuilder(
+              valueListenable: _porkiBox.listenable(),
+              builder: (context, Box box, _) {
+                final cerdas = _obtenerCerdasDesdeHive();
+                final resumen = _calcularResumen(cerdas);
+                final List<dynamic> cambios =
+                    (box.get('global_historial') as List?) ?? [];
 
-                if (snapshot.hasError) {
-                  return Center(child: Text('Error: ${snapshot.error}'));
-                }
-
-                final cerdas = snapshot.data ?? [];
-                return _buildResumenContentFromList(cerdas);
+                return Column(
+                  children: [
+                    _buildResumenContent(resumen),
+                    const SizedBox(height: 16),
+                    Expanded(child: _buildHistorialList(cambios)),
+                  ],
+                );
               },
             ),
           ),
         ],
       ),
-    );
-  }
-
-  // FUNCIÓN COMPLETAMENTE REEMPLAZADA - VERSIÓN CORREGIDA
-  Widget _buildResumenContentFromList(List<Map<String, dynamic>> cerdas) {
-    print('🔄 RESUMEN: Analizando ${cerdas.length} cerdas - ${DateTime.now()}');
-
-    int totalCerdas = cerdas.length;
-
-    // CONTAR PREÑADAS - LÓGICA SIMPLIFICADA
-    int prenadas = cerdas.where((c) {
-      // 1. Verificar por estado
-      final estado = (c['estado'] ?? '').toString().toLowerCase();
-      if (estado.contains('preñ') || estado.contains('pregnant')) {
-        return true;
-      }
-
-      // 2. Verificar por fecha de preñez
-      if (c['fecha_prenez'] != null) {
-        return true;
-      }
-
-      // 3. Verificar por fecha de parto calculado en futuro
-      final fechaPartoCalc = _parseFechaSafe(c['fecha_parto_calculado']);
-      if (fechaPartoCalc != null && fechaPartoCalc.isAfter(DateTime.now())) {
-        return true;
-      }
-
-      return false;
-    }).length;
-
-    // CONTAR LECHONES
-    int totalLechones = 0;
-    for (var cerda in cerdas) {
-      final partos = cerda['partos'] as List<dynamic>? ?? [];
-      for (var parto in partos) {
-        if (parto is Map) {
-          final numLechones = parto['num_lechones'];
-          totalLechones += (numLechones is int
-              ? numLechones
-              : int.tryParse('$numLechones') ?? 0);
-        }
-      }
-    }
-
-    // CONTAR PARTOS HOY
-    int partosHoy = 0;
-    final ahora = DateTime.now();
-    for (var cerda in cerdas) {
-      final partos = cerda['partos'] as List<dynamic>? ?? [];
-      for (var parto in partos) {
-        if (parto is Map) {
-          final fechaParto = _parseFechaSafe(parto['fecha']);
-          if (fechaParto != null &&
-              fechaParto.year == ahora.year &&
-              fechaParto.month == ahora.month &&
-              fechaParto.day == ahora.day) {
-            partosHoy++;
-          }
-        }
-      }
-    }
-
-    // CONTAR PARTOS PENDIENTES
-    int partosPendientes = 0;
-    for (var cerda in cerdas) {
-      final fechaPartoCalculado = _parseFechaSafe(
-        cerda['fecha_parto_calculado'],
-      );
-      if (fechaPartoCalculado != null && !fechaPartoCalculado.isBefore(ahora)) {
-        partosPendientes++;
-      }
-    }
-
-    // CONTAR VACUNAS HOY
-    int vacunasHoy = 0;
-    for (var cerda in cerdas) {
-      final vacunas = cerda['vacunas'] as List<dynamic>? ?? [];
-      for (var vac in vacunas) {
-        if (vac is Map) {
-          final dosisProgramadas =
-              vac['dosis_programadas'] as List<dynamic>? ?? [];
-          for (var dosis in dosisProgramadas) {
-            if (dosis is Map) {
-              final fVac = _parseFechaSafe(dosis['fecha']);
-              if (fVac != null &&
-                  fVac.year == ahora.year &&
-                  fVac.month == ahora.month &&
-                  fVac.day == ahora.day) {
-                vacunasHoy++;
-              }
-            }
-          }
-        }
-      }
-    }
-
-    print('''
-📈 RESUMEN ACTUALIZADO:
-- Total cerdas: $totalCerdas
-- Preñadas: $prenadas  
-- Total lechones: $totalLechones
-- Partos hoy: $partosHoy
-- Partos pendientes: $partosPendientes
-- Vacunas hoy: $vacunasHoy
-''');
-
-    return Card(
-      elevation: 4,
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          children: [
-            const Text(
-              'Resumen General',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildInfoItem(
-                  'Total Cerdas',
-                  totalCerdas.toString(),
-                  '🐖',
-                  totalCerdas,
-                ),
-                _buildInfoItem('Preñadas', prenadas.toString(), '🐷', prenadas),
-                _buildInfoItem(
-                  'Lechones',
-                  totalLechones.toString(),
-                  '🐽',
-                  totalLechones,
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceAround,
-              children: [
-                _buildInfoItem(
-                  'Partos Hoy',
-                  partosHoy.toString(),
-                  '📅',
-                  partosHoy,
-                ),
-                _buildInfoItem(
-                  'Pendientes',
-                  partosPendientes.toString(),
-                  '⏰',
-                  partosPendientes,
-                ),
-                _buildInfoItem(
-                  'Vacunas Hoy',
-                  vacunasHoy.toString(),
-                  '💉',
-                  vacunasHoy,
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildInfoItem(String title, String value, String emoji, int numero) {
-    return Column(
-      children: [
-        Text(emoji, style: const TextStyle(fontSize: 30)),
-        const SizedBox(height: 4),
-        Text(
-          value,
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.bold,
-            color: numero > 0 ? Colors.pink : Colors.grey,
-          ),
-        ),
-        Text(
-          title,
-          style: TextStyle(
-            fontSize: 12,
-            color: numero > 0 ? Colors.black87 : Colors.grey,
-          ),
-        ),
-      ],
     );
   }
 
@@ -886,6 +617,396 @@ Cerda: ${cerda['nombre']}
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildResumenContent(Map<String, int> resumen) {
+    return Card(
+      elevation: 4,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          children: [
+            const Text(
+              'Resumen General',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildInfoItem(
+                  'Total Cerdas',
+                  resumen['totalCerdas'].toString(),
+                  '🐖',
+                  resumen['totalCerdas']!,
+                ),
+                _buildInfoItem(
+                  'Preñadas',
+                  resumen['prenadas'].toString(),
+                  '🐷',
+                  resumen['prenadas']!,
+                ),
+                _buildInfoItem(
+                  'Lechones',
+                  resumen['totalLechones'].toString(),
+                  '🐽',
+                  resumen['totalLechones']!,
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceAround,
+              children: [
+                _buildInfoItem(
+                  'Partos Hoy',
+                  resumen['partosHoy'].toString(),
+                  '📅',
+                  resumen['partosHoy']!,
+                ),
+                _buildInfoItem(
+                  'Pendientes',
+                  resumen['partosPendientes'].toString(),
+                  '⏰',
+                  resumen['partosPendientes']!,
+                ),
+                _buildInfoItem(
+                  'Vacunas Hoy',
+                  resumen['vacunasHoy'].toString(),
+                  '💉',
+                  resumen['vacunasHoy']!,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHistorialList(List<dynamic> cambios) {
+    if (cambios.isEmpty) {
+      return const Card(
+        elevation: 2,
+        child: Padding(
+          padding: EdgeInsets.all(16),
+          child: Center(child: Text('Sin cambios recientes')),
+        ),
+      );
+    }
+
+    return Card(
+      elevation: 3,
+      child: ListView.separated(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        itemCount: cambios.length,
+        separatorBuilder: (_, __) => const Divider(height: 1),
+        itemBuilder: (_, i) {
+          final c = cambios[i] as Map;
+          final ts = c['timestamp'];
+          final fecha =
+              _parseFechaSafe(ts) ??
+              DateTime.fromMillisecondsSinceEpoch((ts is int ? ts : 0));
+
+          return ListTile(
+            leading: _iconoCambio((c['tipo'] ?? '').toString()),
+            title: Text(_tituloCambio(Map<String, dynamic>.from(c))),
+            subtitle: Text('${c['descripcion'] ?? ''}\n${_fmtFecha(fecha)}'),
+            isThreeLine: true,
+            trailing: Text('#${c['sowName'] ?? c['sowId'] ?? '-'}'),
+          );
+        },
+      ),
+    );
+  }
+
+  Icon _iconoCambio(String tipo) {
+    switch (tipo) {
+      case 'peso_actualizado':
+        return const Icon(Icons.monitor_weight, color: Colors.blueGrey);
+      case 'celo':
+        return const Icon(Icons.favorite_border, color: Colors.pink);
+      case 'parto':
+        return const Icon(Icons.pregnant_woman, color: Colors.purple);
+      case 'vacuna':
+        return const Icon(Icons.vaccines, color: Colors.teal);
+      case 'estado':
+        return const Icon(Icons.info_outline, color: Colors.indigo);
+      default:
+        return const Icon(Icons.change_circle_outlined, color: Colors.orange);
+    }
+  }
+
+  String _tituloCambio(Map<String, dynamic> c) {
+    final tipo = (c['tipo'] ?? '').toString();
+    switch (tipo) {
+      case 'peso_actualizado':
+        final peso = (c['datos']?['peso']) ?? '';
+        return (peso != '')
+            ? 'Peso actualizado a $peso kg'
+            : 'Peso actualizado';
+      case 'celo':
+        return 'Registro de celo';
+      case 'parto':
+        return 'Registro de parto';
+      case 'vacuna':
+        return 'Vacunación registrada';
+      case 'estado':
+        return 'Cambio de estado';
+      default:
+        return 'Cambio en la cerda';
+    }
+  }
+
+  String _fmtFecha(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}/${d.month.toString().padLeft(2, '0')}/${d.year} '
+      '${d.hour.toString().padLeft(2, '0')}:${d.minute.toString().padLeft(2, '0')}';
+
+  Widget _buildInfoItem(String title, String value, String emoji, int numero) {
+    return Column(
+      children: [
+        Text(emoji, style: const TextStyle(fontSize: 30)),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 18,
+            fontWeight: FontWeight.bold,
+            color: numero > 0 ? Colors.pink : Colors.grey,
+          ),
+        ),
+        Text(
+          title,
+          style: TextStyle(
+            fontSize: 12,
+            color: numero > 0 ? Colors.black87 : Colors.grey,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildNotificationBadge() {
+    return Stack(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.notifications),
+          onPressed: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const NotificacionesScreen(),
+              ),
+            );
+          },
+        ),
+        if (_cantidadNotificaciones > 0)
+          _buildBadgeCounter(_cantidadNotificaciones),
+      ],
+    );
+  }
+
+  Widget _buildBadgeCounter(int count) {
+    return Positioned(
+      right: 8,
+      top: 8,
+      child: Container(
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          color: Colors.red,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        constraints: const BoxConstraints(minWidth: 16, minHeight: 16),
+        child: Text(
+          count > 9 ? '9+' : count.toString(),
+          style: const TextStyle(color: Colors.white, fontSize: 10),
+          textAlign: TextAlign.center,
+        ),
+      ),
+    );
+  }
+
+  Drawer _buildDrawer(BuildContext context) {
+    final username = _currentUserData['username'] ?? 'Usuario';
+    final role = _currentUserData['role'] ?? 'colaborador';
+
+    return Drawer(
+      child: ListView(
+        padding: EdgeInsets.zero,
+        children: [
+          _buildDrawerHeader(username, role),
+
+          _buildDrawerItem(
+            context,
+            Icons.home,
+            'Inicio',
+            Colors.pink,
+            () => Navigator.pop(context),
+          ),
+          _buildDrawerItem(
+            context,
+            Icons.add_circle,
+            'Agregar Cerda',
+            Colors.green,
+            () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const AgregarCerdaScreen()),
+              ).then((_) => _recargarDatos());
+            },
+          ),
+          _buildDrawerItem(context, Icons.pets, 'Ver Cerdas', Colors.blue, () {
+            Navigator.pop(context);
+            _navegarACerdas();
+          }),
+          _buildDrawerItem(
+            context,
+            Icons.history,
+            'Historial',
+            Colors.orange,
+            () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const HistorialScreen()),
+              );
+            },
+          ),
+          _buildDrawerItem(
+            context,
+            Icons.notifications,
+            'Notificaciones',
+            Colors.purple,
+            () {
+              Navigator.pop(context);
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => const NotificacionesScreen()),
+              );
+            },
+          ),
+          const Divider(),
+          _buildDrawerItem(
+            context,
+            Icons.sync,
+            'Sincronizar Ahora',
+            Colors.blue,
+            _sincronizarManualmente,
+          ),
+          _buildDrawerItem(
+            context,
+            Icons.settings,
+            'Configuración',
+            Colors.grey[700]!,
+            () async {
+              Navigator.pop(context);
+              final updatedData = await Navigator.push<Map<String, dynamic>>(
+                context,
+                MaterialPageRoute(
+                  builder: (context) =>
+                      SettingsScreen(userData: _currentUserData),
+                ),
+              );
+
+              if (updatedData != null && updatedData['username'] != null) {
+                _actualizarDatosUsuario(updatedData);
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'Usuario actualizado: ${updatedData['username']}',
+                    ),
+                    backgroundColor: Colors.green,
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+                setState(() {});
+              }
+            },
+          ),
+          _buildDrawerItem(
+            context,
+            Icons.exit_to_app,
+            'Cerrar Sesión',
+            Colors.pink,
+            _cerrarSesion,
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrawerHeader(String username, String role) {
+    return DrawerHeader(
+      decoration: const BoxDecoration(color: Colors.pink),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Image.asset('assets/images/LogoAlex.png', width: 70, height: 70),
+          const SizedBox(height: 10),
+          Text(
+            username,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 18,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+          Text(
+            role.toUpperCase(),
+            style: const TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+          if (_sincronizando)
+            const Padding(
+              padding: EdgeInsets.only(top: 4.0),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 12,
+                    height: 12,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                    ),
+                  ),
+                  SizedBox(width: 4),
+                  Text(
+                    'Sincronizando...',
+                    style: TextStyle(color: Colors.white70, fontSize: 10),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDrawerItem(
+    BuildContext context,
+    IconData icon,
+    String title,
+    Color color,
+    VoidCallback onTap,
+  ) {
+    return ListTile(
+      leading: Icon(icon, color: color),
+      title: Text(title),
+      onTap: onTap,
+    );
+  }
+
+  void _cerrarSesion() {
+    _syncTimer?.cancel();
+    _connectivitySubscription?.cancel();
+    _firebaseSubscription?.cancel();
+    _historialSub?.cancel();
+
+    Navigator.pushAndRemoveUntil(
+      context,
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
     );
   }
 }

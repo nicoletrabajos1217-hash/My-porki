@@ -319,7 +319,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                   child: const Column(
                     children: [
                       Text(
-                        '📝 Todos los usuarios tienen acceso completo a:',
+                        '📝 En MyPorki app tienes acceso a:',
                         style: TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.grey,

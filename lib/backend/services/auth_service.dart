@@ -12,42 +12,170 @@ class AuthService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   static final ConnectivityService _connectivityService = ConnectivityService();
 
-  /// ✅ Verificar si el usuario está logueado
+  // 🔑 CLAVE: Control manual de sesión
+  static final String _sessionFlagKey = 'user_manually_logged_in';
+
+  /// ✅ Verificar si el usuario está logueado - ESTRATEGIA CORREGIDA
   static Future<bool> isLoggedIn() async {
     try {
-      final currentUser = _auth.currentUser;
-      if (currentUser != null) {
-        return true;
+      // 1. Verificar si el usuario CERRÓ MANUALMENTE la sesión
+      final box = await Hive.openBox('porki_users');
+      final bool isManuallyLoggedIn = box.get(_sessionFlagKey) ?? false;
+
+      if (!isManuallyLoggedIn) {
+        developer.log(
+          '🚫 Sesión cerrada manualmente - forzar logout',
+          name: 'my_porki.auth',
+        );
+        await _forceCompleteLogout();
+        return false;
       }
 
-      final box = await Hive.openBox('porki_users');
+      // 2. Verificar Firebase Auth
+      final currentUser = _auth.currentUser;
+      if (currentUser == null) {
+        developer.log(
+          '🚫 No hay usuario en Firebase Auth',
+          name: 'my_porki.auth',
+        );
+        await _clearSessionFlag();
+        return false;
+      }
+
+      // 3. Verificar que existe en Hive también
       final localUser = box.get('current_user');
-      return localUser != null;
+      if (localUser == null) {
+        developer.log(
+          '🚫 Inconsistencia: Firebase sí, Hive no',
+          name: 'my_porki.auth',
+        );
+        await _forceCompleteLogout();
+        return false;
+      }
+
+      developer.log('✅ Sesión válida y activa', name: 'my_porki.auth');
+      return true;
     } catch (e) {
       developer.log(
         '❌ Error verificando autenticación: $e',
         name: 'my_porki.auth',
       );
+      await _forceCompleteLogout();
       return false;
     }
   }
 
-  /// ✅ Login con email o username - CON SOPORTE OFFLINE
+  /// ✅ Login con email o username - CON CONTROL MANUAL
   static Future<Map<String, dynamic>> loginUser({
     required String input,
     required String password,
   }) async {
     try {
       final tieneInternet = await _connectivityService.checkConnection();
+      Map<String, dynamic> userData;
 
       if (tieneInternet) {
-        return await _loginWithFirebase(input, password);
+        userData = await _loginWithFirebase(input, password);
       } else {
-        return await _loginOffline(input, password);
+        userData = await _loginOffline(input, password);
       }
+
+      // 🔑 MARCAR que el usuario inició sesión MANUALMENTE
+      await _setSessionFlag(true);
+
+      developer.log(
+        '✅ Login exitoso - sesión marcada como activa',
+        name: 'my_porki.auth',
+      );
+      return userData;
     } catch (e) {
       developer.log('❌ Error en login: $e', name: 'my_porki.auth');
+      // Asegurar que no quede sesión activa si el login falla
+      await _setSessionFlag(false);
       throw Exception(e.toString());
+    }
+  }
+
+  /// ✅ Cerrar sesión - LIMPIEZA COMPLETA
+  static Future<void> logout() async {
+    try {
+      developer.log('🚀 Iniciando logout completo...', name: 'my_porki.auth');
+
+      // 1. MARCAR que el usuario CERRÓ sesión manualmente
+      await _setSessionFlag(false);
+
+      // 2. Limpiar Firebase Auth
+      await _auth.signOut();
+      developer.log('✅ Firebase Auth limpiado', name: 'my_porki.auth');
+
+      // 3. Limpiar Hive
+      final box = await Hive.openBox('porki_users');
+      await box.delete('current_user');
+      developer.log('✅ Hive limpiado', name: 'my_porki.auth');
+
+      // 4. Limpieza adicional
+      await _clearAllAuthData();
+
+      developer.log(
+        '✅ LOGOUT COMPLETADO - Sesión cerrada permanentemente',
+        name: 'my_porki.auth',
+      );
+    } catch (e) {
+      developer.log('❌ Error en logout: $e', name: 'my_porki.auth');
+      // Forzar limpieza incluso si hay error
+      await _forceCompleteLogout();
+      throw Exception('Error cerrando sesión');
+    }
+  }
+
+  /// 🔑 CONTROL MANUAL DE SESIÓN
+  static Future<void> _setSessionFlag(bool isLoggedIn) async {
+    try {
+      final box = await Hive.openBox('porki_users');
+      await box.put(_sessionFlagKey, isLoggedIn);
+      developer.log('📝 Flag de sesión: $isLoggedIn', name: 'my_porki.auth');
+    } catch (e) {
+      developer.log('❌ Error setting session flag: $e', name: 'my_porki.auth');
+    }
+  }
+
+  static Future<void> _clearSessionFlag() async {
+    try {
+      final box = await Hive.openBox('porki_users');
+      await box.delete(_sessionFlagKey);
+      developer.log('📝 Flag de sesión eliminado', name: 'my_porki.auth');
+    } catch (e) {
+      developer.log('❌ Error clearing session flag: $e', name: 'my_porki.auth');
+    }
+  }
+
+  /// 🧹 LIMPIEZA COMPLETA
+  static Future<void> _forceCompleteLogout() async {
+    try {
+      developer.log('🧹 Forzando limpieza completa...', name: 'my_porki.auth');
+
+      await _setSessionFlag(false);
+      await _auth.signOut();
+      await _clearAllAuthData();
+
+      developer.log('✅ Limpieza forzada completada', name: 'my_porki.auth');
+    } catch (e) {
+      developer.log('❌ Error en limpieza forzada: $e', name: 'my_porki.auth');
+    }
+  }
+
+  static Future<void> _clearAllAuthData() async {
+    try {
+      final box = await Hive.openBox('porki_users');
+      await box.clear();
+      await box.close();
+      await Hive.openBox('porki_users');
+      developer.log(
+        '🧹 Todos los datos de auth limpiados',
+        name: 'my_porki.auth',
+      );
+    } catch (e) {
+      developer.log('❌ Error limpiando datos auth: $e', name: 'my_porki.auth');
     }
   }
 
@@ -194,9 +322,13 @@ class AuthService {
       };
       await _saveUserLocally(userDataWithPassword, cred.user!.uid);
 
+      // 🔑 MARCAR sesión como activa después del registro
+      await _setSessionFlag(true);
+
       developer.log('✅ Usuario registrado: $username', name: 'my_porki.auth');
     } catch (e) {
       developer.log('❌ Error en registro: $e', name: 'my_porki.auth');
+      await _setSessionFlag(false);
       throw Exception(e.toString());
     }
   }
@@ -230,19 +362,6 @@ class AuthService {
         name: 'my_porki.auth',
       );
       throw Exception('Error guardando datos locales');
-    }
-  }
-
-  /// ✅ Cerrar sesión
-  static Future<void> logout() async {
-    try {
-      final box = await Hive.openBox('porki_users');
-      await box.delete('current_user');
-      await _auth.signOut();
-      developer.log('✅ Sesión cerrada correctamente', name: 'my_porki.auth');
-    } catch (e) {
-      developer.log('❌ Error cerrando sesión: $e', name: 'my_porki.auth');
-      throw Exception('Error cerrando sesión');
     }
   }
 
@@ -541,6 +660,7 @@ class AuthService {
 
         final box = await Hive.openBox('porki_users');
         await box.delete('current_user');
+        await _setSessionFlag(false);
 
         await user.delete();
 

@@ -3,7 +3,7 @@ import 'package:hive/hive.dart';
 import 'package:my_porki/backend/services/auth_service.dart';
 import 'register_screen.dart';
 import 'home_screen.dart';
-import 'forgot_password_screen.dart'; // ✅ Agregar import
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -15,7 +15,6 @@ class LoginScreen extends StatefulWidget {
 class _LoginScreenState extends State<LoginScreen> {
   final TextEditingController _userController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-  // AuthService methods are estáticos, no se necesita instancia
 
   bool _isLoading = false;
   bool _obscurePassword = true;
@@ -28,6 +27,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final input = _userController.text.trim();
       final password = _passwordController.text.trim();
 
+      // Validaciones básicas
       if (input.isEmpty || password.isEmpty) {
         _showMessage('Por favor, completa todos los campos.');
         setState(() => _isLoading = false);
@@ -42,11 +42,13 @@ class _LoginScreenState extends State<LoginScreen> {
 
       await Hive.openBox('porki_users');
 
+      // 🔹 INTENTAR LOGIN - ESTA ES LA PARTE CLAVE
       final userData = await AuthService.loginUser(
         input: input,
         password: password,
       );
 
+      // 🔹 SI LLEGA AQUÍ, EL LOGIN FUE EXITOSO
       if (!mounted) return;
 
       _showMessage('Bienvenido, ${userData["username"] ?? "Usuario"} 🐷');
@@ -56,7 +58,13 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(builder: (context) => HomeScreen(userData: userData)),
       );
     } catch (e) {
-      _showMessage(_getErrorMessage(e));
+      // 🔹 CAPTURAR Y MOSTRAR ERROR ESPECÍFICO
+      final errorMessage = _getErrorMessage(e);
+      _showMessage(errorMessage);
+
+      // 🔹 DEBUG: Mostrar en consola para verificar
+      print('Error de login: $e');
+      print('Mensaje mostrado al usuario: $errorMessage');
     } finally {
       if (mounted) {
         setState(() => _isLoading = false);
@@ -67,18 +75,24 @@ class _LoginScreenState extends State<LoginScreen> {
   String _getErrorMessage(dynamic error) {
     final errorString = error.toString();
 
+    // 🔹 VERIFICAR DIFERENTES TIPOS DE ERROR
     if (errorString.contains('user-not-found')) {
       return 'Usuario no encontrado. Verifica tus datos.';
     } else if (errorString.contains('wrong-password')) {
       return 'Contraseña incorrecta. Intenta nuevamente.';
+    } else if (errorString.contains('invalid-credential') ||
+        errorString.contains('INVALID_LOGIN_CREDENTIALS')) {
+      return 'Credenciales inválidas. Usuario o contraseña incorrectos.';
     } else if (errorString.contains('network-request-failed')) {
       return 'Error de conexión. Verifica tu internet.';
     } else if (errorString.contains('too-many-requests')) {
       return 'Demasiados intentos. Espera un momento.';
     } else if (errorString.contains('invalid-email')) {
       return 'El formato del correo no es válido.';
+    } else if (errorString.contains('user-disabled')) {
+      return 'Esta cuenta ha sido deshabilitada.';
     } else {
-      return 'Error: ${errorString.replaceAll('Exception:', '').trim()}';
+      return 'Error al iniciar sesión: ${errorString.replaceAll('Exception:', '').trim()}';
     }
   }
 
@@ -88,13 +102,16 @@ class _LoginScreenState extends State<LoginScreen> {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(msg),
-        backgroundColor: Colors.pink,
+        backgroundColor: msg.toLowerCase().contains('bienvenido')
+            ? Colors.green
+            : Colors.pink,
         behavior: SnackBarBehavior.floating,
         duration: const Duration(seconds: 3),
       ),
     );
   }
 
+  // El resto de tu código build permanece igual...
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -112,7 +129,6 @@ class _LoginScreenState extends State<LoginScreen> {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  // 🔹 Logo sin borde ni círculo
                   SizedBox(
                     width: 140,
                     height: 140,
@@ -138,7 +154,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 40),
 
-                  // 🔹 Campo de usuario/correo
                   TextField(
                     controller: _userController,
                     decoration: const InputDecoration(
@@ -157,7 +172,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // 🔹 Campo de contraseña
                   TextField(
                     controller: _passwordController,
                     obscureText: _obscurePassword,
@@ -185,7 +199,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     onSubmitted: (_) => _login(),
                   ),
 
-                  // ✅ NUEVO: Enlace para recuperar contraseña
                   const SizedBox(height: 10),
                   Align(
                     alignment: Alignment.centerRight,
@@ -210,7 +223,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   ),
                   const SizedBox(height: 20),
 
-                  // 🔹 Botón de login o loading
                   _isLoading
                       ? const Column(
                           children: [
@@ -245,7 +257,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             const SizedBox(height: 20),
 
-                            // 🔹 Enlace a registro
                             Row(
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
@@ -281,7 +292,6 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                             const SizedBox(height: 10),
 
-                            // 🔹 Información adicional
                             Container(
                               margin: const EdgeInsets.only(top: 20),
                               padding: const EdgeInsets.all(16),

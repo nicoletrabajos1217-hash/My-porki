@@ -69,7 +69,7 @@ class ExportService {
       // Calcular estadísticas básicas
       int totalLechones = cerdas.fold(
         0,
-        (sum, c) => sum + SowService.totalLechones(c),
+        (sum, c) => sum + SowService.calcularTotalLechones(c),
       );
 
       // Calcular cerdas preñadas (asumiendo que el estado "Preñada" existe)
@@ -157,7 +157,7 @@ class ExportService {
           c['nombre'] ?? 'Sin nombre',
           c['estado'] ?? 'Sin estado',
           partos.length.toString(),
-          SowService.totalLechones(c).toString(),
+          SowService.calcularTotalLechones(c).toString(),
           c['fecha_parto_calculado'] ?? 'No definida',
         ]);
       }
@@ -261,7 +261,7 @@ class ExportService {
                 pw.SizedBox(height: 10),
                 pw.Text('Total de cerdas: ${cerdas.length}'),
                 pw.Text(
-                  'Total de lechones: ${cerdas.fold(0, (sum, c) => sum + SowService.totalLechones(c))}',
+                  'Total de lechones: ${cerdas.fold(0, (sum, c) => sum + SowService.calcularTotalLechones(c))}',
                 ),
                 pw.SizedBox(height: 20),
 
@@ -334,7 +334,9 @@ class ExportService {
                               ),
                               pw.Padding(
                                 child: pw.Text(
-                                  SowService.totalLechones(cerda).toString(),
+                                  SowService.calcularTotalLechones(
+                                    cerda,
+                                  ).toString(),
                                 ),
                                 padding: const pw.EdgeInsets.all(8),
                               ),

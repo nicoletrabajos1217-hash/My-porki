@@ -126,10 +126,9 @@ class _AppEntryPointState extends State<AppEntryPoint> {
   }
 
   Future<void> _initializeApp() async {
-    await Future.wait([
-      _checkAuthentication(),
-      _initializeBackgroundServices(),
-    ]);
+    await _checkAuthentication();
+    // Los servicios de background se inicializan después de la autenticación
+    _initializeBackgroundServices();
   }
 
   Future<void> _checkAuthentication() async {
@@ -138,8 +137,7 @@ class _AppEntryPointState extends State<AppEntryPoint> {
 
     if (!mounted) return;
 
-    setState(() => _checkingAuth = false);
-
+    // Navegar directamente sin cambiar el estado primero
     if (isLoggedIn) {
       final userData = await AuthService.getCurrentUser();
       Navigator.of(context).pushReplacement(
@@ -156,6 +154,9 @@ class _AppEntryPointState extends State<AppEntryPoint> {
         context,
       ).pushReplacement(MaterialPageRoute(builder: (_) => const LoginScreen()));
     }
+
+    // Solo después de la navegación, actualizar el estado
+    setState(() => _checkingAuth = false);
   }
 
   Future<void> _initializeBackgroundServices() async {
@@ -192,7 +193,9 @@ class _AppEntryPointState extends State<AppEntryPoint> {
 
   @override
   Widget build(BuildContext context) {
-    return _checkingAuth ? const SplashScreen() : const LoginScreen();
+    // Solo mostrar splash screen mientras verifica autenticación
+    // No mostrar LoginScreen aquí nunca
+    return const SplashScreen();
   }
 }
 
